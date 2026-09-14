@@ -1,3 +1,4 @@
+import type { CameraState } from "@/editor/camera/types";
 import type {
   EditorDocument,
   EditorNode,
@@ -14,8 +15,12 @@ export class Canvas2DRenderer {
     this.context = context;
   }
 
-  render(document: EditorDocument) {
+  render(document: EditorDocument, camera: CameraState, pixelRatio = 1) {
     this.clearCanvas();
+
+    this.context.save();
+
+    this.applyCameraTransform(camera, pixelRatio);
 
     for (const rootNodeId of document.rootNodeIds) {
       const rootNode = document.nodes[rootNodeId];
@@ -26,6 +31,8 @@ export class Canvas2DRenderer {
 
       this.renderNode(document, rootNode);
     }
+
+    this.context.restore();
   }
 
   private clearCanvas() {
@@ -37,6 +44,19 @@ export class Canvas2DRenderer {
     this.context.clearRect(0, 0, canvas.width, canvas.height);
 
     this.context.restore();
+  }
+
+  private applyCameraTransform(camera: CameraState, pixelRatio: number) {
+    const scale = camera.zoom * pixelRatio;
+
+    this.context.setTransform(
+      scale,
+      0,
+      0,
+      scale,
+      camera.offsetX * pixelRatio,
+      camera.offsetY * pixelRatio,
+    );
   }
 
   private renderNode(document: EditorDocument, node: EditorNode) {

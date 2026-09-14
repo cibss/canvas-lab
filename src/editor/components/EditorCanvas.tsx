@@ -2,25 +2,28 @@
 
 import { useEffect, useRef } from "react";
 
+import { createCamera } from "@/editor/camera/camera";
+import type { CameraState } from "@/editor/camera/types";
 import type { EditorDocument } from "@/editor/document/types";
 import { Canvas2DRenderer } from "@/editor/renderer/Canvas2DRenderer";
 
 import styles from "./EditorCanvas.module.css";
-
-const CANVAS_WIDTH = 1440;
-const CANVAS_HEIGHT = 900;
 
 interface EditorCanvasProps {
   document: EditorDocument;
 }
 
 export function EditorCanvas({ document }: EditorCanvasProps) {
+  const viewportRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
+  const cameraRef = useRef<CameraState>(createCamera());
+
   useEffect(() => {
+    const viewport = viewportRef.current;
     const canvas = canvasRef.current;
 
-    if (!canvas) {
+    if (!viewport || !canvas) {
       return;
     }
 
@@ -30,23 +33,48 @@ export function EditorCanvas({ document }: EditorCanvasProps) {
       return;
     }
 
-    const pixelRatio = window.devicePixelRatio || 1;
-
-    canvas.width = CANVAS_WIDTH * pixelRatio;
-    canvas.height = CANVAS_HEIGHT * pixelRatio;
-
-    canvas.style.width = `${CANVAS_WIDTH}px`;
-    canvas.style.height = `${CANVAS_HEIGHT}px`;
-
-    context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-
     const renderer = new Canvas2DRenderer(context);
 
-    renderer.render(document);
+    const render = () => {
+      const viewportRect = viewport.getBoundingClientRect();
+
+      const viewportWidth = Math.max(1, Math.floor(viewportRect.width));
+
+      const viewportHeight = Math.max(1, Math.floor(viewportRect.height));
+
+      const pixelRatio = window.devicePixelRatio || 1;
+
+      const canvasWidth = Math.round(viewportWidth * pixelRatio);
+
+      const canvasHeight = Math.round(viewportHeight * pixelRatio);
+
+      if (canvas.width !== canvasWidth) {
+        canvas.width = canvasWidth;
+      }
+
+      if (canvas.height !== canvasHeight) {
+        canvas.height = canvasHeight;
+      }
+
+      canvas.style.width = `${viewportWidth}px`;
+      canvas.style.height = `${viewportHeight}px`;
+
+      renderer.render(document, cameraRef.current, pixelRatio);
+    };
+
+    render();
+
+    const resizeObserver = new ResizeObserver(render);
+
+    resizeObserver.observe(viewport);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
   }, [document]);
 
   return (
-    <div className={styles.viewport}>
+    <div ref={viewportRef} className={styles.viewport}>
       <canvas
         ref={canvasRef}
         className={styles.canvas}

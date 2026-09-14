@@ -1,8 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { sampleDocument } from "../document/sampleDocument";
+import type { CameraState } from "@/editor/camera/types";
+import { sampleDocument } from "@/editor/document/sampleDocument";
 
 import { Canvas2DRenderer } from "./Canvas2DRenderer";
+
+const defaultCamera: CameraState = {
+  offsetX: 0,
+  offsetY: 0,
+  zoom: 1,
+};
 
 function createMockContext() {
   const context = {
@@ -55,9 +62,27 @@ describe("Canvas2DRenderer", () => {
       context as unknown as CanvasRenderingContext2D,
     );
 
-    renderer.render(sampleDocument);
+    renderer.render(sampleDocument, defaultCamera);
 
     expect(context.clearRect).toHaveBeenCalledWith(0, 0, 1440, 900);
+  });
+
+  it("applies the camera transform", () => {
+    const context = createMockContext();
+
+    const renderer = new Canvas2DRenderer(
+      context as unknown as CanvasRenderingContext2D,
+    );
+
+    const camera: CameraState = {
+      offsetX: -200,
+      offsetY: 50,
+      zoom: 2,
+    };
+
+    renderer.render(sampleDocument, camera, 2);
+
+    expect(context.setTransform).toHaveBeenCalledWith(4, 0, 0, 4, -400, 100);
   });
 
   it("renders the root frame", () => {
@@ -67,7 +92,7 @@ describe("Canvas2DRenderer", () => {
       context as unknown as CanvasRenderingContext2D,
     );
 
-    renderer.render(sampleDocument);
+    renderer.render(sampleDocument, defaultCamera);
 
     expect(context.fillRect).toHaveBeenCalledWith(0, 0, 1200, 720);
   });
@@ -79,7 +104,7 @@ describe("Canvas2DRenderer", () => {
       context as unknown as CanvasRenderingContext2D,
     );
 
-    renderer.render(sampleDocument);
+    renderer.render(sampleDocument, defaultCamera);
 
     expect(context.fill).toHaveBeenCalledTimes(2);
     expect(context.ellipse).toHaveBeenCalledTimes(1);
@@ -92,7 +117,7 @@ describe("Canvas2DRenderer", () => {
       context as unknown as CanvasRenderingContext2D,
     );
 
-    renderer.render(sampleDocument);
+    renderer.render(sampleDocument, defaultCamera);
 
     expect(context.fillText).toHaveBeenCalledWith(
       "Design without limits.",
@@ -102,14 +127,14 @@ describe("Canvas2DRenderer", () => {
     );
   });
 
-  it("isolates rendering state for every node", () => {
+  it("isolates rendering state", () => {
     const context = createMockContext();
 
     const renderer = new Canvas2DRenderer(
       context as unknown as CanvasRenderingContext2D,
     );
 
-    renderer.render(sampleDocument);
+    renderer.render(sampleDocument, defaultCamera);
 
     expect(context.save).toHaveBeenCalled();
     expect(context.restore).toHaveBeenCalled();

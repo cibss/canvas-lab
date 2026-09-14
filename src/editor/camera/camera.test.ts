@@ -81,6 +81,30 @@ describe("camera", () => {
     expect(screenPointAfterZoom.y).toBeCloseTo(screenPoint.y);
   });
 
+  it("preserves the pointer anchor after panning and zooming", () => {
+    const initialCamera = createCamera();
+
+    const pannedCamera = panCamera(initialCamera, -240, 160);
+
+    const pointerPosition = {
+      x: 620,
+      y: 410,
+    };
+
+    const worldPointBeforeZoom = screenToWorld(pointerPosition, pannedCamera);
+
+    const zoomedCamera = zoomCameraAtPoint(pannedCamera, pointerPosition, 2.25);
+
+    const screenPointAfterZoom = worldToScreen(
+      worldPointBeforeZoom,
+      zoomedCamera,
+    );
+
+    expect(screenPointAfterZoom.x).toBeCloseTo(pointerPosition.x);
+
+    expect(screenPointAfterZoom.y).toBeCloseTo(pointerPosition.y);
+  });
+
   it("clamps zoom when zooming around a point", () => {
     const camera = createCamera();
 

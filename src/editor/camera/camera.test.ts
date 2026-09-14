@@ -5,6 +5,7 @@ import {
   createCamera,
   MAX_ZOOM,
   MIN_ZOOM,
+  panCamera,
   screenToWorld,
   worldToScreen,
 } from "./camera";
@@ -15,6 +16,38 @@ describe("camera", () => {
       offsetX: 0,
       offsetY: 0,
       zoom: 1,
+    });
+  });
+
+  it("pans the camera by the provided screen delta", () => {
+    const camera = {
+      offsetX: 100,
+      offsetY: 50,
+      zoom: 1,
+    };
+
+    const result = panCamera(camera, 40, -20);
+
+    expect(result).toEqual({
+      offsetX: 140,
+      offsetY: 30,
+      zoom: 1,
+    });
+  });
+
+  it("does not mutate the original camera when panning", () => {
+    const camera = {
+      offsetX: 100,
+      offsetY: 50,
+      zoom: 2,
+    };
+
+    panCamera(camera, 40, 20);
+
+    expect(camera).toEqual({
+      offsetX: 100,
+      offsetY: 50,
+      zoom: 2,
     });
   });
 

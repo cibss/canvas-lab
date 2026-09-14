@@ -16,6 +16,18 @@ export function clampZoom(zoom: number): number {
   return Math.min(Math.max(zoom, MIN_ZOOM), MAX_ZOOM);
 }
 
+export function panCamera(
+  camera: CameraState,
+  deltaX: number,
+  deltaY: number,
+): CameraState {
+  return {
+    ...camera,
+    offsetX: camera.offsetX + deltaX,
+    offsetY: camera.offsetY + deltaY,
+  };
+}
+
 export function worldToScreen(point: Point, camera: CameraState): Point {
   return {
     x: point.x * camera.zoom + camera.offsetX,

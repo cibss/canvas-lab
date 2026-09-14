@@ -6,6 +6,15 @@
   min-height: 0;
   overflow: hidden;
   background: #e4e4e7;
+  user-select: none;
+}
+
+.viewport[data-pan-ready="true"] {
+  cursor: grab;
+}
+
+.viewport[data-panning="true"] {
+  cursor: grabbing;
 }
 
 .canvas {

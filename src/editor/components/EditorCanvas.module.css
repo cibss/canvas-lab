@@ -1,6 +1,8 @@
 .viewport {
   width: 100%;
-  min-height: 100vh;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
   overflow: auto;
   padding: 48px;
   background: #e4e4e7;

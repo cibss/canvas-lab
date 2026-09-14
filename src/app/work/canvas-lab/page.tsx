@@ -1,5 +1,5 @@
-import { EditorCanvas } from "@/editor/components/EditorCanvas";
+import { EditorShell } from "@/editor/components/EditorShell";
 
 export default function CanvasLabPage() {
-  return <EditorCanvas />;
+  return <EditorShell />;
 }

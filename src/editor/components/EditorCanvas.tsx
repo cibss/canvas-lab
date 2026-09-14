@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 
-import { sampleDocument } from "@/editor/document/sampleDocument";
+import type { EditorDocument } from "@/editor/document/types";
 import { Canvas2DRenderer } from "@/editor/renderer/Canvas2DRenderer";
 
 import styles from "./EditorCanvas.module.css";
@@ -10,7 +10,11 @@ import styles from "./EditorCanvas.module.css";
 const CANVAS_WIDTH = 1440;
 const CANVAS_HEIGHT = 900;
 
-export function EditorCanvas() {
+interface EditorCanvasProps {
+  document: EditorDocument;
+}
+
+export function EditorCanvas({ document }: EditorCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -38,8 +42,8 @@ export function EditorCanvas() {
 
     const renderer = new Canvas2DRenderer(context);
 
-    renderer.render(sampleDocument);
-  }, []);
+    renderer.render(document);
+  }, [document]);
 
   return (
     <div className={styles.viewport}>

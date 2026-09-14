@@ -13,3 +13,9 @@
   max-width: none;
   background: transparent;
 }
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  .viewport {
+    padding: 24px;
+  }
+}

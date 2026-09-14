@@ -63,105 +63,127 @@ export function EditorShell() {
   const nodeCount = Object.keys(document.nodes).length;
 
   return (
-    <main className={styles.shell}>
-      <header className={styles.topBar}>
-        <div className={styles.brandSection}>
-          <span className={styles.logo}>◇</span>
+    <>
+      <div className={styles.mobileNotice} role="status">
+        <div className={styles.mobileNoticeContent}>
+          <div className={styles.mobileNoticeIcon} aria-hidden="true">
+            ◇
+          </div>
 
-          <strong className={styles.brand}>CanvasLab</strong>
+          <h1>CanvasLab</h1>
 
-          <nav className={styles.menu} aria-label="Application menu">
-            <span>File</span>
-            <span>Edit</span>
-            <span>View</span>
-          </nav>
+          <p>CanvasLab is designed for desktop and tablet-sized screens.</p>
+
+          <span>
+            Open this project on a device with a larger screen to explore the
+            full visual editor.
+          </span>
         </div>
-
-        <div className={styles.topBarActions}>
-          <span className={styles.historyAction}>↶</span>
-
-          <span className={styles.historyAction}>↷</span>
-
-          <span className={styles.zoom}>100%</span>
-        </div>
-      </header>
-
-      <div className={styles.editor}>
-        <aside className={styles.toolbar} aria-label="Editor tools">
-          <div className={`${styles.tool} ${styles.activeTool}`} title="Select">
-            ↖
-          </div>
-
-          <div className={styles.tool} title="Rectangle">
-            □
-          </div>
-
-          <div className={styles.tool} title="Ellipse">
-            ○
-          </div>
-
-          <div className={styles.tool} title="Text">
-            T
-          </div>
-
-          <div className={styles.tool} title="Frame">
-            ▣
-          </div>
-        </aside>
-
-        <aside className={styles.layersPanel}>
-          <div className={styles.panelHeader}>Layers</div>
-
-          <div className={styles.layers}>
-            {document.rootNodeIds.map((nodeId) => (
-              <LayerTree key={nodeId} document={document} nodeId={nodeId} />
-            ))}
-          </div>
-        </aside>
-
-        <section className={styles.workspace} aria-label="Canvas workspace">
-          <EditorCanvas document={document} />
-        </section>
-
-        <aside className={styles.propertiesPanel}>
-          <div className={styles.panelHeader}>Properties</div>
-
-          <div className={styles.emptyProperties}>
-            <strong>No selection</strong>
-
-            <p>Select an object to inspect its properties.</p>
-          </div>
-
-          <div className={styles.documentSection}>
-            <div className={styles.sectionTitle}>Document</div>
-
-            <dl className={styles.metadata}>
-              <div>
-                <dt>Name</dt>
-                <dd>{document.name}</dd>
-              </div>
-
-              <div>
-                <dt>Objects</dt>
-                <dd>{nodeCount}</dd>
-              </div>
-
-              <div>
-                <dt>Renderer</dt>
-                <dd>Canvas 2D</dd>
-              </div>
-            </dl>
-          </div>
-        </aside>
       </div>
 
-      <footer className={styles.statusBar}>
-        <span>Ready</span>
+      <main className={styles.shell}>
+        <header className={styles.topBar}>
+          <div className={styles.brandSection}>
+            <span className={styles.logo}>◇</span>
 
-        <span>{nodeCount} objects</span>
+            <strong className={styles.brand}>CanvasLab</strong>
 
-        <span>Canvas 2D · 60 FPS target</span>
-      </footer>
-    </main>
+            <nav className={styles.menu} aria-label="Application menu">
+              <span>File</span>
+              <span>Edit</span>
+              <span>View</span>
+            </nav>
+          </div>
+
+          <div className={styles.topBarActions}>
+            <span className={styles.historyAction}>↶</span>
+
+            <span className={styles.historyAction}>↷</span>
+
+            <span className={styles.zoom}>100%</span>
+          </div>
+        </header>
+
+        <div className={styles.editor}>
+          <aside className={styles.toolbar} aria-label="Editor tools">
+            <div
+              className={`${styles.tool} ${styles.activeTool}`}
+              title="Select"
+            >
+              ↖
+            </div>
+
+            <div className={styles.tool} title="Rectangle">
+              □
+            </div>
+
+            <div className={styles.tool} title="Ellipse">
+              ○
+            </div>
+
+            <div className={styles.tool} title="Text">
+              T
+            </div>
+
+            <div className={styles.tool} title="Frame">
+              ▣
+            </div>
+          </aside>
+
+          <aside className={styles.layersPanel}>
+            <div className={styles.panelHeader}>Layers</div>
+
+            <div className={styles.layers}>
+              {document.rootNodeIds.map((nodeId) => (
+                <LayerTree key={nodeId} document={document} nodeId={nodeId} />
+              ))}
+            </div>
+          </aside>
+
+          <section className={styles.workspace} aria-label="Canvas workspace">
+            <EditorCanvas document={document} />
+          </section>
+
+          <aside className={styles.propertiesPanel}>
+            <div className={styles.panelHeader}>Properties</div>
+
+            <div className={styles.emptyProperties}>
+              <strong>No selection</strong>
+
+              <p>Select an object to inspect its properties.</p>
+            </div>
+
+            <div className={styles.documentSection}>
+              <div className={styles.sectionTitle}>Document</div>
+
+              <dl className={styles.metadata}>
+                <div>
+                  <dt>Name</dt>
+                  <dd>{document.name}</dd>
+                </div>
+
+                <div>
+                  <dt>Objects</dt>
+                  <dd>{nodeCount}</dd>
+                </div>
+
+                <div>
+                  <dt>Renderer</dt>
+                  <dd>Canvas 2D</dd>
+                </div>
+              </dl>
+            </div>
+          </aside>
+        </div>
+
+        <footer className={styles.statusBar}>
+          <span>Ready</span>
+
+          <span>{nodeCount} objects</span>
+
+          <span>Canvas 2D · 60 FPS target</span>
+        </footer>
+      </main>
+    </>
   );
 }

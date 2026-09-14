@@ -1,6 +1,6 @@
 import type { EditorDocument } from "./types";
 
-export const sampleDocument = {
+export const sampleDocument: EditorDocument = {
   schemaVersion: 1,
 
   id: "canvas-lab-sample",
@@ -123,4 +123,4 @@ export const sampleDocument = {
       },
     },
   },
-} satisfies EditorDocument;
+};

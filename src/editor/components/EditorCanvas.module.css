@@ -1,0 +1,13 @@
+.viewport {
+  width: 100%;
+  min-height: 100vh;
+  overflow: auto;
+  padding: 48px;
+  background: #e4e4e7;
+}
+
+.canvas {
+  display: block;
+  max-width: none;
+  background: transparent;
+}

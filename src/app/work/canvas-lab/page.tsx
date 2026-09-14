@@ -1,12 +1,5 @@
-export default function CanvasLabPage() {
-  return (
-    <main>
-      <h1>CanvasLab</h1>
+import { EditorCanvas } from "@/editor/components/EditorCanvas";
 
-      <p>
-        A browser-based visual editor for exploring frontend editor
-        architecture.
-      </p>
-    </main>
-  );
+export default function CanvasLabPage() {
+  return <EditorCanvas />;
 }

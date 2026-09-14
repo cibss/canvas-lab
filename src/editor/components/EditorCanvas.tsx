@@ -2,7 +2,11 @@
 
 import { useEffect, useRef } from "react";
 
-import { createCamera, panCamera } from "@/editor/camera/camera";
+import {
+  createCamera,
+  panCamera,
+  zoomCameraAtPoint,
+} from "@/editor/camera/camera";
 import type { CameraState, Point } from "@/editor/camera/types";
 import type { EditorDocument } from "@/editor/document/types";
 import { Canvas2DRenderer } from "@/editor/renderer/Canvas2DRenderer";
@@ -12,6 +16,8 @@ import styles from "./EditorCanvas.module.css";
 interface EditorCanvasProps {
   document: EditorDocument;
 }
+
+const ZOOM_SENSITIVITY = 0.0015;
 
 function isEditableElement(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
@@ -182,6 +188,29 @@ export function EditorCanvas({ document }: EditorCanvasProps) {
       endPan();
     };
 
+    const handleWheel = (event: WheelEvent) => {
+      event.preventDefault();
+
+      const viewportRect = viewport.getBoundingClientRect();
+
+      const pointerPosition = {
+        x: event.clientX - viewportRect.left,
+        y: event.clientY - viewportRect.top,
+      };
+
+      const zoomFactor = Math.exp(-event.deltaY * ZOOM_SENSITIVITY);
+
+      const nextZoom = cameraRef.current.zoom * zoomFactor;
+
+      cameraRef.current = zoomCameraAtPoint(
+        cameraRef.current,
+        pointerPosition,
+        nextZoom,
+      );
+
+      requestRender();
+    };
+
     const handleWindowBlur = () => {
       isSpacePressed = false;
 
@@ -210,6 +239,10 @@ export function EditorCanvas({ document }: EditorCanvasProps) {
 
     canvas.addEventListener("pointercancel", handlePointerUp);
 
+    canvas.addEventListener("wheel", handleWheel, {
+      passive: false,
+    });
+
     return () => {
       resizeObserver.disconnect();
 
@@ -226,6 +259,8 @@ export function EditorCanvas({ document }: EditorCanvasProps) {
       canvas.removeEventListener("pointerup", handlePointerUp);
 
       canvas.removeEventListener("pointercancel", handlePointerUp);
+
+      canvas.removeEventListener("wheel", handleWheel);
 
       if (animationFrameId !== null) {
         window.cancelAnimationFrame(animationFrameId);

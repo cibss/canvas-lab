@@ -28,6 +28,24 @@ export function panCamera(
   };
 }
 
+export function zoomCameraAtPoint(
+  camera: CameraState,
+  screenPoint: Point,
+  nextZoom: number,
+): CameraState {
+  const clampedZoom = clampZoom(nextZoom);
+
+  const worldPoint = screenToWorld(screenPoint, camera);
+
+  return {
+    offsetX: screenPoint.x - worldPoint.x * clampedZoom,
+
+    offsetY: screenPoint.y - worldPoint.y * clampedZoom,
+
+    zoom: clampedZoom,
+  };
+}
+
 export function worldToScreen(point: Point, camera: CameraState): Point {
   return {
     x: point.x * camera.zoom + camera.offsetX,

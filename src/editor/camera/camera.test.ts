@@ -8,6 +8,7 @@ import {
   panCamera,
   screenToWorld,
   worldToScreen,
+  zoomCameraAtPoint,
 } from "./camera";
 
 describe("camera", () => {
@@ -48,6 +49,74 @@ describe("camera", () => {
       offsetX: 100,
       offsetY: 50,
       zoom: 2,
+    });
+  });
+
+  it("zooms around a screen point", () => {
+    const camera = {
+      offsetX: 100,
+      offsetY: 50,
+      zoom: 1,
+    };
+
+    const screenPoint = {
+      x: 500,
+      y: 350,
+    };
+
+    const worldPointBeforeZoom = screenToWorld(screenPoint, camera);
+
+    const nextCamera = zoomCameraAtPoint(camera, screenPoint, 2);
+
+    const screenPointAfterZoom = worldToScreen(
+      worldPointBeforeZoom,
+      nextCamera,
+    );
+
+    expect(nextCamera.zoom).toBe(2);
+
+    expect(screenPointAfterZoom.x).toBeCloseTo(screenPoint.x);
+
+    expect(screenPointAfterZoom.y).toBeCloseTo(screenPoint.y);
+  });
+
+  it("clamps zoom when zooming around a point", () => {
+    const camera = createCamera();
+
+    const screenPoint = {
+      x: 400,
+      y: 300,
+    };
+
+    const zoomedOutCamera = zoomCameraAtPoint(camera, screenPoint, 0);
+
+    const zoomedInCamera = zoomCameraAtPoint(camera, screenPoint, 100);
+
+    expect(zoomedOutCamera.zoom).toBe(MIN_ZOOM);
+
+    expect(zoomedInCamera.zoom).toBe(MAX_ZOOM);
+  });
+
+  it("does not mutate the original camera when zooming", () => {
+    const camera = {
+      offsetX: 120,
+      offsetY: -40,
+      zoom: 1.5,
+    };
+
+    zoomCameraAtPoint(
+      camera,
+      {
+        x: 300,
+        y: 200,
+      },
+      2,
+    );
+
+    expect(camera).toEqual({
+      offsetX: 120,
+      offsetY: -40,
+      zoom: 1.5,
     });
   });
 

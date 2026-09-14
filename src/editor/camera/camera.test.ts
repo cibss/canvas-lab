@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   clampZoom,
   createCamera,
+  fitCameraToBounds,
   MAX_ZOOM,
   MIN_ZOOM,
   panCamera,
@@ -118,6 +119,73 @@ describe("camera", () => {
       offsetY: -40,
       zoom: 1.5,
     });
+  });
+
+  it("fits content inside the viewport", () => {
+    const camera = fitCameraToBounds(
+      {
+        x: 100,
+        y: 100,
+        width: 1200,
+        height: 720,
+      },
+      {
+        width: 1000,
+        height: 700,
+      },
+      50,
+    );
+
+    const topLeft = worldToScreen(
+      {
+        x: 100,
+        y: 100,
+      },
+      camera,
+    );
+
+    const bottomRight = worldToScreen(
+      {
+        x: 1300,
+        y: 820,
+      },
+      camera,
+    );
+
+    expect(topLeft.x).toBeGreaterThanOrEqual(50);
+
+    expect(topLeft.y).toBeGreaterThanOrEqual(50);
+
+    expect(bottomRight.x).toBeLessThanOrEqual(950);
+
+    expect(bottomRight.y).toBeLessThanOrEqual(650);
+  });
+
+  it("centers fitted content in the viewport", () => {
+    const camera = fitCameraToBounds(
+      {
+        x: 100,
+        y: 50,
+        width: 800,
+        height: 400,
+      },
+      {
+        width: 1200,
+        height: 800,
+      },
+    );
+
+    const contentCenter = worldToScreen(
+      {
+        x: 500,
+        y: 250,
+      },
+      camera,
+    );
+
+    expect(contentCenter.x).toBeCloseTo(600);
+
+    expect(contentCenter.y).toBeCloseTo(400);
   });
 
   it("converts world coordinates to screen coordinates", () => {

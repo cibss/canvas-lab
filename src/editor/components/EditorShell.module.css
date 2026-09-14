@@ -58,7 +58,7 @@
 .topBarActions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   color: #52525b;
 }
 
@@ -72,10 +72,48 @@
   font-size: 16px;
 }
 
-.zoom {
-  min-width: 42px;
-  text-align: right;
+.zoomControls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 4px;
+  padding-left: 8px;
+  border-left: 1px solid #e4e4e7;
+}
+
+.zoomButton,
+.zoomValue,
+.fitButton {
+  height: 28px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #52525b;
+}
+
+.zoomButton:hover,
+.zoomValue:hover,
+.fitButton:hover {
+  background: #f4f4f5;
+  color: #18181b;
+}
+
+.zoomButton {
+  width: 28px;
+  padding: 0;
+  font-size: 16px;
+}
+
+.zoomValue {
+  min-width: 54px;
+  padding: 0 8px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
+}
+
+.fitButton {
+  padding: 0 9px;
+  font-size: 12px;
 }
 
 .editor {
@@ -317,7 +355,9 @@
   }
 
   .metadata div {
-    grid-template-columns: 60px minmax(0, 1fr);
+    grid-template-columns:
+      60px
+      minmax(0, 1fr);
   }
 }
 

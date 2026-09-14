@@ -1,3 +1,7 @@
+"use client";
+
+import { useCallback, useRef, useState } from "react";
+
 import type {
   EditorDocument,
   EditorNode,
@@ -5,7 +9,7 @@ import type {
 } from "@/editor/document/types";
 import { sampleDocument } from "@/editor/document/sampleDocument";
 
-import { EditorCanvas } from "./EditorCanvas";
+import { EditorCanvas, type EditorCanvasHandle } from "./EditorCanvas";
 
 import styles from "./EditorShell.module.css";
 
@@ -60,7 +64,16 @@ function LayerTree({ document, nodeId, depth = 0 }: LayerTreeProps) {
 
 export function EditorShell() {
   const document = sampleDocument;
+
+  const canvasRef = useRef<EditorCanvasHandle>(null);
+
+  const [zoomPercentage, setZoomPercentage] = useState(100);
+
   const nodeCount = Object.keys(document.nodes).length;
+
+  const handleZoomChange = useCallback((zoom: number) => {
+    setZoomPercentage(Math.round(zoom * 100));
+  }, []);
 
   return (
     <>
@@ -100,7 +113,45 @@ export function EditorShell() {
 
             <span className={styles.historyAction}>↷</span>
 
-            <span className={styles.zoom}>100%</span>
+            <div className={styles.zoomControls} aria-label="Zoom controls">
+              <button
+                type="button"
+                className={styles.zoomButton}
+                onClick={() => canvasRef.current?.zoomOut()}
+                aria-label="Zoom out"
+                title="Zoom out"
+              >
+                −
+              </button>
+
+              <button
+                type="button"
+                className={styles.zoomValue}
+                onClick={() => canvasRef.current?.resetZoom()}
+                aria-label="Reset zoom to 100%"
+                title="Reset zoom to 100%"
+              >
+                {zoomPercentage}%
+              </button>
+
+              <button
+                type="button"
+                className={styles.zoomButton}
+                onClick={() => canvasRef.current?.zoomIn()}
+                aria-label="Zoom in"
+                title="Zoom in"
+              >
+                +
+              </button>
+
+              <button
+                type="button"
+                className={styles.fitButton}
+                onClick={() => canvasRef.current?.fitContent()}
+              >
+                Fit
+              </button>
+            </div>
           </div>
         </header>
 
@@ -141,7 +192,11 @@ export function EditorShell() {
           </aside>
 
           <section className={styles.workspace} aria-label="Canvas workspace">
-            <EditorCanvas document={document} />
+            <EditorCanvas
+              ref={canvasRef}
+              document={document}
+              onZoomChange={handleZoomChange}
+            />
           </section>
 
           <aside className={styles.propertiesPanel}>

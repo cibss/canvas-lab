@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { getResizeHandlePoint, getResizeHandles } from "./resizeHandles";
+import {
+  findResizeHandleAtPoint,
+  getResizeHandlePoint,
+  getResizeHandles,
+} from "./resizeHandles";
 import type { TransformBounds } from "./types";
 
 const bounds: TransformBounds = {
@@ -45,5 +49,44 @@ describe("resize handles", () => {
       x: 500,
       y: 500,
     });
+  });
+
+  it("finds a resize handle at 100 percent zoom", () => {
+    expect(
+      findResizeHandleAtPoint(
+        bounds,
+        {
+          x: 500,
+          y: 350,
+        },
+        1,
+      ),
+    ).toBe("east");
+  });
+
+  it("keeps the resize hit area usable at high zoom", () => {
+    expect(
+      findResizeHandleAtPoint(
+        bounds,
+        {
+          x: 501,
+          y: 350,
+        },
+        4,
+      ),
+    ).toBe("east");
+  });
+
+  it("returns null away from resize handles", () => {
+    expect(
+      findResizeHandleAtPoint(
+        bounds,
+        {
+          x: 300,
+          y: 350,
+        },
+        1,
+      ),
+    ).toBeNull();
   });
 });

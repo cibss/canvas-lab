@@ -1,5 +1,6 @@
-import type { Point } from "@/editor/camera/types";
+import type { Bounds, Point } from "@/editor/camera/types";
 
+import { getNodeWorldPosition } from "./nodeGeometry";
 import type { EditorDocument, EditorNode, NodeId } from "./types";
 
 function hasSelectedAncestor(
@@ -121,6 +122,7 @@ export function moveNodesBy(
       ...node,
 
       x: node.x + delta.x,
+
       y: node.y + delta.y,
     };
 
@@ -134,6 +136,68 @@ export function moveNodesBy(
   return {
     ...document,
     nodes: nextNodes,
+  };
+}
+
+export function resizeNodeToWorldBounds(
+  document: EditorDocument,
+  nodeId: NodeId,
+  bounds: Bounds,
+): EditorDocument {
+  const node = document.nodes[nodeId];
+
+  if (!node || node.locked) {
+    return document;
+  }
+
+  let parentWorldX = 0;
+  let parentWorldY = 0;
+
+  if (node.parentId) {
+    const parentPosition = getNodeWorldPosition(document, node.parentId);
+
+    if (!parentPosition) {
+      return document;
+    }
+
+    parentWorldX = parentPosition.x;
+
+    parentWorldY = parentPosition.y;
+  }
+
+  const nextX = bounds.x - parentWorldX;
+
+  const nextY = bounds.y - parentWorldY;
+
+  const nextWidth = Math.max(1, bounds.width);
+
+  const nextHeight = Math.max(1, bounds.height);
+
+  if (
+    node.x === nextX &&
+    node.y === nextY &&
+    node.width === nextWidth &&
+    node.height === nextHeight
+  ) {
+    return document;
+  }
+
+  return {
+    ...document,
+
+    nodes: {
+      ...document.nodes,
+
+      [nodeId]: {
+        ...node,
+
+        x: nextX,
+        y: nextY,
+
+        width: nextWidth,
+        height: nextHeight,
+      },
+    },
   };
 }
 

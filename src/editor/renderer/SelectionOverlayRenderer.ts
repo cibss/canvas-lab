@@ -1,7 +1,10 @@
 import type { CameraState } from "@/editor/camera/types";
 import type { EditorDocument } from "@/editor/document/types";
 import type { SelectionState } from "@/editor/selection/selection";
-import { getResizeHandles } from "@/editor/transform/resizeHandles";
+import {
+  getResizeHandles,
+  RESIZE_HANDLE_VISUAL_SIZE,
+} from "@/editor/transform/resizeHandles";
 import { getSelectionBounds } from "@/editor/transform/selectionBounds";
 
 const SELECTION_COLOR = "#2563eb";
@@ -9,8 +12,6 @@ const SELECTION_COLOR = "#2563eb";
 const HANDLE_FILL = "#ffffff";
 
 const SELECTION_STROKE_WIDTH = 1.5;
-
-const HANDLE_SIZE = 8;
 
 export class SelectionOverlayRenderer {
   private readonly context: CanvasRenderingContext2D;
@@ -43,7 +44,7 @@ export class SelectionOverlayRenderer {
 
     const handles = getResizeHandles(bounds);
 
-    const handleSize = HANDLE_SIZE / camera.zoom;
+    const handleSize = RESIZE_HANDLE_VISUAL_SIZE / camera.zoom;
 
     const handleOffset = handleSize / 2;
 

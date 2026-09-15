@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { deleteNodes, moveNodeBy, moveNodesBy } from "./documentOperations";
+import {
+  deleteNodes,
+  moveNodeBy,
+  moveNodesBy,
+  resizeNodeToWorldBounds,
+} from "./documentOperations";
 import { sampleDocument } from "./sampleDocument";
 import type { EditorDocument } from "./types";
 
@@ -124,6 +129,88 @@ describe("document operations", () => {
       expect(result.nodes["text-title"].x).toBe(122);
 
       expect(result.nodes["text-title"].y).toBe(172);
+    });
+  });
+
+  describe("resizeNodeToWorldBounds", () => {
+    it("resizes a root node using world bounds", () => {
+      const result = resizeNodeToWorldBounds(sampleDocument, "frame-main", {
+        x: 150,
+        y: 100,
+
+        width: 900,
+        height: 600,
+      });
+
+      const frame = result.nodes["frame-main"];
+
+      expect(frame.x).toBe(150);
+
+      expect(frame.y).toBe(100);
+
+      expect(frame.width).toBe(900);
+
+      expect(frame.height).toBe(600);
+    });
+
+    it("converts world position back to local coordinates for a child node", () => {
+      const result = resizeNodeToWorldBounds(sampleDocument, "text-title", {
+        x: 300,
+        y: 260,
+
+        width: 500,
+        height: 90,
+      });
+
+      const text = result.nodes["text-title"];
+
+      expect(text.x).toBe(180);
+
+      expect(text.y).toBe(180);
+
+      expect(text.width).toBe(500);
+
+      expect(text.height).toBe(90);
+    });
+
+    it("does not mutate the original node when resizing", () => {
+      resizeNodeToWorldBounds(sampleDocument, "text-title", {
+        x: 300,
+        y: 260,
+
+        width: 500,
+        height: 90,
+      });
+
+      expect(sampleDocument.nodes["text-title"].x).toBe(112);
+
+      expect(sampleDocument.nodes["text-title"].width).toBe(560);
+    });
+
+    it("does not resize locked nodes", () => {
+      const document: EditorDocument = {
+        ...sampleDocument,
+
+        nodes: {
+          ...sampleDocument.nodes,
+
+          "text-title": {
+            ...sampleDocument.nodes["text-title"],
+
+            locked: true,
+          },
+        },
+      };
+
+      const result = resizeNodeToWorldBounds(document, "text-title", {
+        x: 300,
+        y: 260,
+
+        width: 500,
+        height: 90,
+      });
+
+      expect(result).toBe(document);
     });
   });
 

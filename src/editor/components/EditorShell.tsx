@@ -81,6 +81,8 @@ export function EditorShell() {
 
   const nodeCount = Object.keys(document.nodes).length;
 
+  const selectedNodeCount = selection.selectedNodeIds.length;
+
   const selectedNodeId = selection.selectedNodeIds[0] ?? null;
 
   const selectedNode = selectedNodeId ? document.nodes[selectedNodeId] : null;
@@ -228,7 +230,16 @@ export function EditorShell() {
             <div className={styles.panelHeader}>Properties</div>
 
             <div className={styles.emptyProperties}>
-              {selectedNode ? (
+              {selectedNodeCount > 1 ? (
+                <>
+                  <strong>{selectedNodeCount} objects selected</strong>
+
+                  <p>
+                    Multi-selection is active. Group transformation will be
+                    added later.
+                  </p>
+                </>
+              ) : selectedNode ? (
                 <>
                   <strong>{selectedNode.name}</strong>
 
@@ -271,7 +282,11 @@ export function EditorShell() {
 
         <footer className={styles.statusBar}>
           <span>
-            {selectedNode ? `${selectedNode.name} selected` : "Ready"}
+            {selectedNodeCount > 1
+              ? `${selectedNodeCount} objects selected`
+              : selectedNode
+                ? `${selectedNode.name} selected`
+                : "Ready"}
           </span>
 
           <span>{nodeCount} objects</span>

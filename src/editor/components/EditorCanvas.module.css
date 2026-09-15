@@ -21,6 +21,10 @@
   cursor: move;
 }
 
+.viewport[data-marquee-selecting="true"] {
+  cursor: crosshair;
+}
+
 .canvas {
   display: block;
   width: 100%;

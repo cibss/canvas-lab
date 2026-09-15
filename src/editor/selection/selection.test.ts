@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  addNodesToSelection,
   clearSelection,
   createSelectionState,
   isNodeSelected,
+  selectNodes,
   selectSingleNode,
+  toggleNodeSelection,
 } from "./selection";
 
 describe("selection", () => {
@@ -18,6 +21,69 @@ describe("selection", () => {
     const selection = createSelectionState();
 
     const nextSelection = selectSingleNode(selection, "rectangle-hero");
+
+    expect(nextSelection).toEqual({
+      selectedNodeIds: ["rectangle-hero"],
+    });
+  });
+
+  it("selects multiple nodes", () => {
+    const selection = createSelectionState();
+
+    const nextSelection = selectNodes(selection, [
+      "rectangle-hero",
+      "text-title",
+    ]);
+
+    expect(nextSelection).toEqual({
+      selectedNodeIds: ["rectangle-hero", "text-title"],
+    });
+  });
+
+  it("removes duplicate node ids", () => {
+    const selection = createSelectionState();
+
+    const nextSelection = selectNodes(selection, [
+      "rectangle-hero",
+      "rectangle-hero",
+    ]);
+
+    expect(nextSelection).toEqual({
+      selectedNodeIds: ["rectangle-hero"],
+    });
+  });
+
+  it("adds nodes to an existing selection", () => {
+    const selection = {
+      selectedNodeIds: ["rectangle-hero"],
+    };
+
+    const nextSelection = addNodesToSelection(selection, [
+      "text-title",
+      "ellipse-decoration",
+    ]);
+
+    expect(nextSelection).toEqual({
+      selectedNodeIds: ["rectangle-hero", "text-title", "ellipse-decoration"],
+    });
+  });
+
+  it("toggles a node into the selection", () => {
+    const selection = createSelectionState();
+
+    const nextSelection = toggleNodeSelection(selection, "text-title");
+
+    expect(nextSelection).toEqual({
+      selectedNodeIds: ["text-title"],
+    });
+  });
+
+  it("toggles a selected node out of the selection", () => {
+    const selection = {
+      selectedNodeIds: ["rectangle-hero", "text-title"],
+    };
+
+    const nextSelection = toggleNodeSelection(selection, "text-title");
 
     expect(nextSelection).toEqual({
       selectedNodeIds: ["rectangle-hero"],

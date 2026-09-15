@@ -22,11 +22,20 @@ import { getDocumentBounds } from "@/editor/document/documentBounds";
 import { moveNodeBy } from "@/editor/document/documentOperations";
 import type { EditorDocument, NodeId } from "@/editor/document/types";
 import { Canvas2DRenderer } from "@/editor/renderer/Canvas2DRenderer";
+import { MarqueeOverlayRenderer } from "@/editor/renderer/MarqueeOverlayRenderer";
 import { SelectionOverlayRenderer } from "@/editor/renderer/SelectionOverlayRenderer";
 import { hitTestDocument } from "@/editor/selection/hitTest";
 import {
+  findNodesWithinMarquee,
+  getMarqueeBounds,
+  type MarqueeState,
+} from "@/editor/selection/marquee";
+import {
+  addNodesToSelection,
   clearSelection,
+  selectNodes,
   selectSingleNode,
+  toggleNodeSelection,
   type SelectionState,
 } from "@/editor/selection/selection";
 
@@ -50,9 +59,10 @@ export interface EditorCanvasHandle {
   fitContent: () => void;
 }
 
-type PointerInteraction = "idle" | "panning" | "dragging-node";
+type PointerInteraction = "idle" | "panning" | "dragging-node" | "marquee";
 
 const ZOOM_SENSITIVITY = 0.0015;
+const MARQUEE_DRAG_THRESHOLD = 3;
 
 function isEditableElement(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
@@ -211,6 +221,8 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
       const selectionRenderer = new SelectionOverlayRenderer(context);
 
+      const marqueeRenderer = new MarqueeOverlayRenderer(context);
+
       let animationFrameId: number | null = null;
 
       let isSpacePressed = false;
@@ -227,6 +239,14 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
       };
 
       let lastDragWorldPosition: Point | null = null;
+
+      let marquee: MarqueeState | null = null;
+
+      let marqueeBaseSelection: SelectionState = selectionRef.current;
+
+      let marqueeAdditive = false;
+
+      let marqueeStartClientPosition: Point | null = null;
 
       const render = () => {
         const viewportRect = viewport.getBoundingClientRect();
@@ -265,6 +285,8 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           cameraRef.current,
           pixelRatio,
         );
+
+        marqueeRenderer.render(marquee, cameraRef.current, pixelRatio);
       };
 
       const requestRender = () => {
@@ -301,6 +323,20 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         }
       };
 
+      const applyRuntimeSelection = (nextSelection: SelectionState) => {
+        if (nextSelection === selectionRef.current) {
+          return;
+        }
+
+        selectionRef.current = nextSelection;
+
+        requestRender();
+      };
+
+      const commitSelection = () => {
+        onSelectionChangeRef.current(selectionRef.current);
+      };
+
       const endPointerInteraction = (commitDocument: boolean) => {
         if (pointerInteraction === "dragging-node" && commitDocument) {
           onDocumentChangeRef.current(documentRef.current);
@@ -310,25 +346,18 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
         activePointerId = null;
         draggedNodeId = null;
+
         lastDragWorldPosition = null;
+
+        marquee = null;
+
+        marqueeStartClientPosition = null;
 
         delete viewport.dataset.panning;
 
         delete viewport.dataset.draggingNode;
-      };
 
-      const updateSelection = (nodeId: NodeId | null) => {
-        const nextSelection = nodeId
-          ? selectSingleNode(selectionRef.current, nodeId)
-          : clearSelection(selectionRef.current);
-
-        if (nextSelection === selectionRef.current) {
-          return;
-        }
-
-        selectionRef.current = nextSelection;
-
-        onSelectionChangeRef.current(nextSelection);
+        delete viewport.dataset.marqueeSelecting;
 
         requestRender();
       };
@@ -364,6 +393,58 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         canvas.setPointerCapture(event.pointerId);
 
         viewport.dataset.panning = "true";
+      };
+
+      const startMarquee = (event: PointerEvent, worldPoint: Point) => {
+        pointerInteraction = "marquee";
+
+        activePointerId = event.pointerId;
+
+        marquee = {
+          start: worldPoint,
+          current: worldPoint,
+        };
+
+        marqueeBaseSelection = selectionRef.current;
+
+        marqueeAdditive = event.shiftKey;
+
+        marqueeStartClientPosition = {
+          x: event.clientX,
+          y: event.clientY,
+        };
+
+        canvas.setPointerCapture(event.pointerId);
+
+        viewport.dataset.marqueeSelecting = "true";
+
+        requestRender();
+      };
+
+      const updateMarquee = (event: PointerEvent) => {
+        if (!marquee) {
+          return;
+        }
+
+        marquee = {
+          ...marquee,
+          current: getWorldPoint(event),
+        };
+
+        const marqueeBounds = getMarqueeBounds(marquee);
+
+        const candidateNodeIds = findNodesWithinMarquee(
+          documentRef.current,
+          marqueeBounds,
+        );
+
+        const nextSelection = marqueeAdditive
+          ? addNodesToSelection(marqueeBaseSelection, candidateNodeIds)
+          : selectNodes(selectionRef.current, candidateNodeIds);
+
+        applyRuntimeSelection(nextSelection);
+
+        requestRender();
       };
 
       const handleKeyDown = (event: KeyboardEvent) => {
@@ -417,13 +498,29 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
         const hitNodeId = hitTestDocument(documentRef.current, worldPoint);
 
-        updateSelection(hitNodeId);
+        if (hitNodeId && event.shiftKey) {
+          applyRuntimeSelection(
+            toggleNodeSelection(selectionRef.current, hitNodeId),
+          );
 
-        if (!hitNodeId) {
+          commitSelection();
+
           return;
         }
 
-        startNodeDrag(event, hitNodeId, worldPoint);
+        if (hitNodeId) {
+          applyRuntimeSelection(
+            selectSingleNode(selectionRef.current, hitNodeId),
+          );
+
+          commitSelection();
+
+          startNodeDrag(event, hitNodeId, worldPoint);
+
+          return;
+        }
+
+        startMarquee(event, worldPoint);
       };
 
       const handlePointerMove = (event: PointerEvent) => {
@@ -444,6 +541,12 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           cameraRef.current = panCamera(cameraRef.current, deltaX, deltaY);
 
           requestRender();
+
+          return;
+        }
+
+        if (pointerInteraction === "marquee") {
+          updateMarquee(event);
 
           return;
         }
@@ -480,6 +583,30 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           return;
         }
 
+        if (pointerInteraction === "marquee") {
+          updateMarquee(event);
+
+          const start = marqueeStartClientPosition;
+
+          const dragDistance = start
+            ? Math.hypot(
+                event.clientX - start.x,
+
+                event.clientY - start.y,
+              )
+            : 0;
+
+          if (dragDistance < MARQUEE_DRAG_THRESHOLD) {
+            if (marqueeAdditive) {
+              applyRuntimeSelection(marqueeBaseSelection);
+            } else {
+              applyRuntimeSelection(clearSelection(selectionRef.current));
+            }
+          }
+
+          commitSelection();
+        }
+
         releasePointerCapture(event.pointerId);
 
         endPointerInteraction(true);
@@ -488,6 +615,10 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
       const handlePointerCancel = (event: PointerEvent) => {
         if (event.pointerId !== activePointerId) {
           return;
+        }
+
+        if (pointerInteraction === "marquee") {
+          commitSelection();
         }
 
         releasePointerCapture(event.pointerId);
@@ -519,6 +650,10 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         isSpacePressed = false;
 
         delete viewport.dataset.panReady;
+
+        if (pointerInteraction === "marquee") {
+          commitSelection();
+        }
 
         if (activePointerId !== null) {
           releasePointerCapture(activePointerId);

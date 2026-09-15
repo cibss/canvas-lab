@@ -7,6 +7,7 @@ import {
   DEFAULT_ZOOM,
   fitCameraToBounds,
   panCamera,
+  screenToWorld,
   zoomCameraAtPoint,
   ZOOM_BUTTON_FACTOR,
 } from "@/editor/camera/camera";
@@ -14,11 +15,20 @@ import type { CameraState, Point } from "@/editor/camera/types";
 import { getDocumentBounds } from "@/editor/document/documentBounds";
 import type { EditorDocument } from "@/editor/document/types";
 import { Canvas2DRenderer } from "@/editor/renderer/Canvas2DRenderer";
+import { SelectionOverlayRenderer } from "@/editor/renderer/SelectionOverlayRenderer";
+import { hitTestDocument } from "@/editor/selection/hitTest";
+import {
+  clearSelection,
+  selectSingleNode,
+  type SelectionState,
+} from "@/editor/selection/selection";
 
 import styles from "./EditorCanvas.module.css";
 
 interface EditorCanvasProps {
   document: EditorDocument;
+  selection: SelectionState;
+  onSelectionChange: (selection: SelectionState) => void;
   onZoomChange?: (zoom: number) => void;
 }
 
@@ -45,14 +55,31 @@ function isEditableElement(target: EventTarget | null): boolean {
 }
 
 export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
-  function EditorCanvas({ document, onZoomChange }, ref) {
+  function EditorCanvas(
+    { document, selection, onSelectionChange, onZoomChange },
+    ref,
+  ) {
     const viewportRef = useRef<HTMLDivElement>(null);
 
     const canvasRef = useRef<HTMLCanvasElement>(null);
 
     const cameraRef = useRef<CameraState>(createCamera());
 
+    const selectionRef = useRef<SelectionState>(selection);
+
+    const onSelectionChangeRef = useRef(onSelectionChange);
+
     const requestRenderRef = useRef<() => void>(() => undefined);
+
+    useEffect(() => {
+      selectionRef.current = selection;
+
+      requestRenderRef.current();
+    }, [selection]);
+
+    useEffect(() => {
+      onSelectionChangeRef.current = onSelectionChange;
+    }, [onSelectionChange]);
 
     const applyCamera = (camera: CameraState, notifyZoom = true) => {
       cameraRef.current = camera;
@@ -124,6 +151,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
     useEffect(() => {
       const viewport = viewportRef.current;
+
       const canvas = canvasRef.current;
 
       if (!viewport || !canvas) {
@@ -136,7 +164,9 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         return;
       }
 
-      const renderer = new Canvas2DRenderer(context);
+      const documentRenderer = new Canvas2DRenderer(context);
+
+      const selectionRenderer = new SelectionOverlayRenderer(context);
 
       let animationFrameId: number | null = null;
 
@@ -175,7 +205,14 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
         canvas.style.height = `${viewportHeight}px`;
 
-        renderer.render(document, cameraRef.current, pixelRatio);
+        documentRenderer.render(document, cameraRef.current, pixelRatio);
+
+        selectionRenderer.render(
+          document,
+          selectionRef.current,
+          cameraRef.current,
+          pixelRatio,
+        );
       };
 
       const requestRender = () => {
@@ -226,14 +263,51 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         }
       };
 
+      const handleSelection = (event: PointerEvent) => {
+        const viewportRect = viewport.getBoundingClientRect();
+
+        const screenPoint = {
+          x: event.clientX - viewportRect.left,
+
+          y: event.clientY - viewportRect.top,
+        };
+
+        const worldPoint = screenToWorld(screenPoint, cameraRef.current);
+
+        const hitNodeId = hitTestDocument(document, worldPoint);
+
+        const nextSelection = hitNodeId
+          ? selectSingleNode(selectionRef.current, hitNodeId)
+          : clearSelection(selectionRef.current);
+
+        if (nextSelection === selectionRef.current) {
+          return;
+        }
+
+        selectionRef.current = nextSelection;
+
+        onSelectionChangeRef.current(nextSelection);
+
+        requestRender();
+      };
+
       const handlePointerDown = (event: PointerEvent) => {
-        if (!isSpacePressed || event.button !== 0) {
+        if (event.button !== 0) {
+          return;
+        }
+
+        if (!isSpacePressed) {
+          event.preventDefault();
+
+          handleSelection(event);
+
           return;
         }
 
         event.preventDefault();
 
         isPanning = true;
+
         activePointerId = event.pointerId;
 
         lastPointerPosition = {

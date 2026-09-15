@@ -8,6 +8,10 @@ import type {
   NodeId,
 } from "@/editor/document/types";
 import { sampleDocument } from "@/editor/document/sampleDocument";
+import {
+  createSelectionState,
+  type SelectionState,
+} from "@/editor/selection/selection";
 
 import { EditorCanvas, type EditorCanvasHandle } from "./EditorCanvas";
 
@@ -69,10 +73,22 @@ export function EditorShell() {
 
   const [zoomPercentage, setZoomPercentage] = useState(100);
 
+  const [selection, setSelection] = useState<SelectionState>(() =>
+    createSelectionState(),
+  );
+
   const nodeCount = Object.keys(document.nodes).length;
+
+  const selectedNodeId = selection.selectedNodeIds[0] ?? null;
+
+  const selectedNode = selectedNodeId ? document.nodes[selectedNodeId] : null;
 
   const handleZoomChange = useCallback((zoom: number) => {
     setZoomPercentage(Math.round(zoom * 100));
+  }, []);
+
+  const handleSelectionChange = useCallback((nextSelection: SelectionState) => {
+    setSelection(nextSelection);
   }, []);
 
   return (
@@ -195,6 +211,8 @@ export function EditorShell() {
             <EditorCanvas
               ref={canvasRef}
               document={document}
+              selection={selection}
+              onSelectionChange={handleSelectionChange}
               onZoomChange={handleZoomChange}
             />
           </section>
@@ -203,9 +221,22 @@ export function EditorShell() {
             <div className={styles.panelHeader}>Properties</div>
 
             <div className={styles.emptyProperties}>
-              <strong>No selection</strong>
+              {selectedNode ? (
+                <>
+                  <strong>{selectedNode.name}</strong>
 
-              <p>Select an object to inspect its properties.</p>
+                  <p>
+                    {selectedNode.type} selected. Property editing will be added
+                    later.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <strong>No selection</strong>
+
+                  <p>Select an object to inspect its properties.</p>
+                </>
+              )}
             </div>
 
             <div className={styles.documentSection}>
@@ -232,7 +263,9 @@ export function EditorShell() {
         </div>
 
         <footer className={styles.statusBar}>
-          <span>Ready</span>
+          <span>
+            {selectedNode ? `${selectedNode.name} selected` : "Ready"}
+          </span>
 
           <span>{nodeCount} objects</span>
 

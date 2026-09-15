@@ -2,12 +2,12 @@
 
 import { useCallback, useRef, useState } from "react";
 
+import { sampleDocument } from "@/editor/document/sampleDocument";
 import type {
   EditorDocument,
   EditorNode,
   NodeId,
 } from "@/editor/document/types";
-import { sampleDocument } from "@/editor/document/sampleDocument";
 import {
   createSelectionState,
   type SelectionState,
@@ -67,9 +67,11 @@ function LayerTree({ document, nodeId, depth = 0 }: LayerTreeProps) {
 }
 
 export function EditorShell() {
-  const document = sampleDocument;
-
   const canvasRef = useRef<EditorCanvasHandle>(null);
+
+  const [document, setDocument] = useState<EditorDocument>(
+    () => sampleDocument,
+  );
 
   const [zoomPercentage, setZoomPercentage] = useState(100);
 
@@ -82,6 +84,10 @@ export function EditorShell() {
   const selectedNodeId = selection.selectedNodeIds[0] ?? null;
 
   const selectedNode = selectedNodeId ? document.nodes[selectedNodeId] : null;
+
+  const handleDocumentChange = useCallback((nextDocument: EditorDocument) => {
+    setDocument(nextDocument);
+  }, []);
 
   const handleZoomChange = useCallback((zoom: number) => {
     setZoomPercentage(Math.round(zoom * 100));
@@ -212,6 +218,7 @@ export function EditorShell() {
               ref={canvasRef}
               document={document}
               selection={selection}
+              onDocumentChange={handleDocumentChange}
               onSelectionChange={handleSelectionChange}
               onZoomChange={handleZoomChange}
             />

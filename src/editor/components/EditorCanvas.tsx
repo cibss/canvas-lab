@@ -1,6 +1,12 @@
 "use client";
 
-import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+} from "react";
 
 import {
   createCamera,
@@ -13,7 +19,8 @@ import {
 } from "@/editor/camera/camera";
 import type { CameraState, Point } from "@/editor/camera/types";
 import { getDocumentBounds } from "@/editor/document/documentBounds";
-import type { EditorDocument } from "@/editor/document/types";
+import { moveNodeBy } from "@/editor/document/documentOperations";
+import type { EditorDocument, NodeId } from "@/editor/document/types";
 import { Canvas2DRenderer } from "@/editor/renderer/Canvas2DRenderer";
 import { SelectionOverlayRenderer } from "@/editor/renderer/SelectionOverlayRenderer";
 import { hitTestDocument } from "@/editor/selection/hitTest";
@@ -28,7 +35,11 @@ import styles from "./EditorCanvas.module.css";
 interface EditorCanvasProps {
   document: EditorDocument;
   selection: SelectionState;
+
+  onDocumentChange: (document: EditorDocument) => void;
+
   onSelectionChange: (selection: SelectionState) => void;
+
   onZoomChange?: (zoom: number) => void;
 }
 
@@ -38,6 +49,8 @@ export interface EditorCanvasHandle {
   resetZoom: () => void;
   fitContent: () => void;
 }
+
+type PointerInteraction = "idle" | "panning" | "dragging-node";
 
 const ZOOM_SENSITIVITY = 0.0015;
 
@@ -56,7 +69,7 @@ function isEditableElement(target: EventTarget | null): boolean {
 
 export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
   function EditorCanvas(
-    { document, selection, onSelectionChange, onZoomChange },
+    { document, selection, onDocumentChange, onSelectionChange, onZoomChange },
     ref,
   ) {
     const viewportRef = useRef<HTMLDivElement>(null);
@@ -65,11 +78,23 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
     const cameraRef = useRef<CameraState>(createCamera());
 
+    const documentRef = useRef<EditorDocument>(document);
+
     const selectionRef = useRef<SelectionState>(selection);
+
+    const onDocumentChangeRef = useRef(onDocumentChange);
 
     const onSelectionChangeRef = useRef(onSelectionChange);
 
+    const onZoomChangeRef = useRef(onZoomChange);
+
     const requestRenderRef = useRef<() => void>(() => undefined);
+
+    useEffect(() => {
+      documentRef.current = document;
+
+      requestRenderRef.current();
+    }, [document]);
 
     useEffect(() => {
       selectionRef.current = selection;
@@ -78,20 +103,31 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
     }, [selection]);
 
     useEffect(() => {
+      onDocumentChangeRef.current = onDocumentChange;
+    }, [onDocumentChange]);
+
+    useEffect(() => {
       onSelectionChangeRef.current = onSelectionChange;
     }, [onSelectionChange]);
 
-    const applyCamera = (camera: CameraState, notifyZoom = true) => {
-      cameraRef.current = camera;
+    useEffect(() => {
+      onZoomChangeRef.current = onZoomChange;
+    }, [onZoomChange]);
 
-      if (notifyZoom) {
-        onZoomChange?.(camera.zoom);
-      }
+    const applyCamera = useCallback(
+      (camera: CameraState, notifyZoom = true) => {
+        cameraRef.current = camera;
 
-      requestRenderRef.current();
-    };
+        if (notifyZoom) {
+          onZoomChangeRef.current?.(camera.zoom);
+        }
 
-    const getViewportCenter = (): Point | null => {
+        requestRenderRef.current();
+      },
+      [],
+    );
+
+    const getViewportCenter = useCallback((): Point | null => {
       const viewport = viewportRef.current;
 
       if (!viewport) {
@@ -104,50 +140,57 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         x: rect.width / 2,
         y: rect.height / 2,
       };
-    };
+    }, []);
 
-    const zoomAroundViewportCenter = (nextZoom: number) => {
-      const center = getViewportCenter();
+    const zoomAroundViewportCenter = useCallback(
+      (nextZoom: number) => {
+        const center = getViewportCenter();
 
-      if (!center) {
-        return;
-      }
-
-      applyCamera(zoomCameraAtPoint(cameraRef.current, center, nextZoom));
-    };
-
-    useImperativeHandle(ref, () => ({
-      zoomIn() {
-        zoomAroundViewportCenter(cameraRef.current.zoom * ZOOM_BUTTON_FACTOR);
-      },
-
-      zoomOut() {
-        zoomAroundViewportCenter(cameraRef.current.zoom / ZOOM_BUTTON_FACTOR);
-      },
-
-      resetZoom() {
-        zoomAroundViewportCenter(DEFAULT_ZOOM);
-      },
-
-      fitContent() {
-        const viewport = viewportRef.current;
-
-        const bounds = getDocumentBounds(document);
-
-        if (!viewport || !bounds) {
+        if (!center) {
           return;
         }
 
-        const rect = viewport.getBoundingClientRect();
-
-        applyCamera(
-          fitCameraToBounds(bounds, {
-            width: rect.width,
-            height: rect.height,
-          }),
-        );
+        applyCamera(zoomCameraAtPoint(cameraRef.current, center, nextZoom));
       },
-    }));
+      [applyCamera, getViewportCenter],
+    );
+
+    useImperativeHandle(
+      ref,
+      () => ({
+        zoomIn() {
+          zoomAroundViewportCenter(cameraRef.current.zoom * ZOOM_BUTTON_FACTOR);
+        },
+
+        zoomOut() {
+          zoomAroundViewportCenter(cameraRef.current.zoom / ZOOM_BUTTON_FACTOR);
+        },
+
+        resetZoom() {
+          zoomAroundViewportCenter(DEFAULT_ZOOM);
+        },
+
+        fitContent() {
+          const viewport = viewportRef.current;
+
+          const bounds = getDocumentBounds(documentRef.current);
+
+          if (!viewport || !bounds) {
+            return;
+          }
+
+          const rect = viewport.getBoundingClientRect();
+
+          applyCamera(
+            fitCameraToBounds(bounds, {
+              width: rect.width,
+              height: rect.height,
+            }),
+          );
+        },
+      }),
+      [applyCamera, zoomAroundViewportCenter],
+    );
 
     useEffect(() => {
       const viewport = viewportRef.current;
@@ -171,14 +214,19 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
       let animationFrameId: number | null = null;
 
       let isSpacePressed = false;
-      let isPanning = false;
+
+      let pointerInteraction: PointerInteraction = "idle";
 
       let activePointerId: number | null = null;
+
+      let draggedNodeId: NodeId | null = null;
 
       let lastPointerPosition: Point = {
         x: 0,
         y: 0,
       };
+
+      let lastDragWorldPosition: Point | null = null;
 
       const render = () => {
         const viewportRect = viewport.getBoundingClientRect();
@@ -205,10 +253,14 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
         canvas.style.height = `${viewportHeight}px`;
 
-        documentRenderer.render(document, cameraRef.current, pixelRatio);
+        documentRenderer.render(
+          documentRef.current,
+          cameraRef.current,
+          pixelRatio,
+        );
 
         selectionRenderer.render(
-          document,
+          documentRef.current,
           selectionRef.current,
           cameraRef.current,
           pixelRatio,
@@ -222,62 +274,52 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
         animationFrameId = window.requestAnimationFrame(() => {
           animationFrameId = null;
+
           render();
         });
       };
 
       requestRenderRef.current = requestRender;
 
-      const endPan = () => {
-        isPanning = false;
-        activePointerId = null;
-
-        delete viewport.dataset.panning;
-      };
-
-      const handleKeyDown = (event: KeyboardEvent) => {
-        if (event.code !== "Space" || isEditableElement(event.target)) {
-          return;
-        }
-
-        event.preventDefault();
-
-        isSpacePressed = true;
-
-        viewport.dataset.panReady = "true";
-      };
-
-      const handleKeyUp = (event: KeyboardEvent) => {
-        if (event.code !== "Space") {
-          return;
-        }
-
-        event.preventDefault();
-
-        isSpacePressed = false;
-
-        delete viewport.dataset.panReady;
-
-        if (isPanning) {
-          endPan();
-        }
-      };
-
-      const handleSelection = (event: PointerEvent) => {
+      const getScreenPoint = (event: PointerEvent): Point => {
         const viewportRect = viewport.getBoundingClientRect();
 
-        const screenPoint = {
+        return {
           x: event.clientX - viewportRect.left,
 
           y: event.clientY - viewportRect.top,
         };
+      };
 
-        const worldPoint = screenToWorld(screenPoint, cameraRef.current);
+      const getWorldPoint = (event: PointerEvent): Point => {
+        return screenToWorld(getScreenPoint(event), cameraRef.current);
+      };
 
-        const hitNodeId = hitTestDocument(document, worldPoint);
+      const releasePointerCapture = (pointerId: number) => {
+        if (canvas.hasPointerCapture(pointerId)) {
+          canvas.releasePointerCapture(pointerId);
+        }
+      };
 
-        const nextSelection = hitNodeId
-          ? selectSingleNode(selectionRef.current, hitNodeId)
+      const endPointerInteraction = (commitDocument: boolean) => {
+        if (pointerInteraction === "dragging-node" && commitDocument) {
+          onDocumentChangeRef.current(documentRef.current);
+        }
+
+        pointerInteraction = "idle";
+
+        activePointerId = null;
+        draggedNodeId = null;
+        lastDragWorldPosition = null;
+
+        delete viewport.dataset.panning;
+
+        delete viewport.dataset.draggingNode;
+      };
+
+      const updateSelection = (nodeId: NodeId | null) => {
+        const nextSelection = nodeId
+          ? selectSingleNode(selectionRef.current, nodeId)
           : clearSelection(selectionRef.current);
 
         if (nextSelection === selectionRef.current) {
@@ -291,22 +333,26 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         requestRender();
       };
 
-      const handlePointerDown = (event: PointerEvent) => {
-        if (event.button !== 0) {
-          return;
-        }
+      const startNodeDrag = (
+        event: PointerEvent,
+        nodeId: NodeId,
+        worldPoint: Point,
+      ) => {
+        pointerInteraction = "dragging-node";
 
-        if (!isSpacePressed) {
-          event.preventDefault();
+        activePointerId = event.pointerId;
 
-          handleSelection(event);
+        draggedNodeId = nodeId;
 
-          return;
-        }
+        lastDragWorldPosition = worldPoint;
 
-        event.preventDefault();
+        canvas.setPointerCapture(event.pointerId);
 
-        isPanning = true;
+        viewport.dataset.draggingNode = "true";
+      };
+
+      const startPan = (event: PointerEvent) => {
+        pointerInteraction = "panning";
 
         activePointerId = event.pointerId;
 
@@ -320,21 +366,111 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         viewport.dataset.panning = "true";
       };
 
-      const handlePointerMove = (event: PointerEvent) => {
-        if (!isPanning || event.pointerId !== activePointerId) {
+      const handleKeyDown = (event: KeyboardEvent) => {
+        if (event.code !== "Space" || isEditableElement(event.target)) {
           return;
         }
 
-        const deltaX = event.clientX - lastPointerPosition.x;
+        event.preventDefault();
 
-        const deltaY = event.clientY - lastPointerPosition.y;
+        isSpacePressed = true;
 
-        lastPointerPosition = {
-          x: event.clientX,
-          y: event.clientY,
+        if (pointerInteraction === "idle") {
+          viewport.dataset.panReady = "true";
+        }
+      };
+
+      const handleKeyUp = (event: KeyboardEvent) => {
+        if (event.code !== "Space") {
+          return;
+        }
+
+        event.preventDefault();
+
+        isSpacePressed = false;
+
+        delete viewport.dataset.panReady;
+
+        if (pointerInteraction === "panning") {
+          if (activePointerId !== null) {
+            releasePointerCapture(activePointerId);
+          }
+
+          endPointerInteraction(false);
+        }
+      };
+
+      const handlePointerDown = (event: PointerEvent) => {
+        if (event.button !== 0) {
+          return;
+        }
+
+        event.preventDefault();
+
+        if (isSpacePressed) {
+          startPan(event);
+
+          return;
+        }
+
+        const worldPoint = getWorldPoint(event);
+
+        const hitNodeId = hitTestDocument(documentRef.current, worldPoint);
+
+        updateSelection(hitNodeId);
+
+        if (!hitNodeId) {
+          return;
+        }
+
+        startNodeDrag(event, hitNodeId, worldPoint);
+      };
+
+      const handlePointerMove = (event: PointerEvent) => {
+        if (event.pointerId !== activePointerId) {
+          return;
+        }
+
+        if (pointerInteraction === "panning") {
+          const deltaX = event.clientX - lastPointerPosition.x;
+
+          const deltaY = event.clientY - lastPointerPosition.y;
+
+          lastPointerPosition = {
+            x: event.clientX,
+            y: event.clientY,
+          };
+
+          cameraRef.current = panCamera(cameraRef.current, deltaX, deltaY);
+
+          requestRender();
+
+          return;
+        }
+
+        if (
+          pointerInteraction !== "dragging-node" ||
+          !draggedNodeId ||
+          !lastDragWorldPosition
+        ) {
+          return;
+        }
+
+        const worldPoint = getWorldPoint(event);
+
+        const delta = {
+          x: worldPoint.x - lastDragWorldPosition.x,
+
+          y: worldPoint.y - lastDragWorldPosition.y,
         };
 
-        cameraRef.current = panCamera(cameraRef.current, deltaX, deltaY);
+        lastDragWorldPosition = worldPoint;
+
+        documentRef.current = moveNodeBy(
+          documentRef.current,
+          draggedNodeId,
+          delta,
+        );
 
         requestRender();
       };
@@ -344,11 +480,19 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           return;
         }
 
-        if (canvas.hasPointerCapture(event.pointerId)) {
-          canvas.releasePointerCapture(event.pointerId);
+        releasePointerCapture(event.pointerId);
+
+        endPointerInteraction(true);
+      };
+
+      const handlePointerCancel = (event: PointerEvent) => {
+        if (event.pointerId !== activePointerId) {
+          return;
         }
 
-        endPan();
+        releasePointerCapture(event.pointerId);
+
+        endPointerInteraction(true);
       };
 
       const handleWheel = (event: WheelEvent) => {
@@ -376,7 +520,11 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
         delete viewport.dataset.panReady;
 
-        endPan();
+        if (activePointerId !== null) {
+          releasePointerCapture(activePointerId);
+        }
+
+        endPointerInteraction(true);
       };
 
       render();
@@ -397,7 +545,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
       canvas.addEventListener("pointerup", handlePointerUp);
 
-      canvas.addEventListener("pointercancel", handlePointerUp);
+      canvas.addEventListener("pointercancel", handlePointerCancel);
 
       canvas.addEventListener("wheel", handleWheel, {
         passive: false,
@@ -420,7 +568,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
         canvas.removeEventListener("pointerup", handlePointerUp);
 
-        canvas.removeEventListener("pointercancel", handlePointerUp);
+        canvas.removeEventListener("pointercancel", handlePointerCancel);
 
         canvas.removeEventListener("wheel", handleWheel);
 
@@ -428,7 +576,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           window.cancelAnimationFrame(animationFrameId);
         }
       };
-    }, [document, onZoomChange]);
+    }, [applyCamera]);
 
     return (
       <div ref={viewportRef} className={styles.viewport}>

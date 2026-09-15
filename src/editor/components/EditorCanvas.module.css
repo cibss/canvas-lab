@@ -17,6 +17,10 @@
   cursor: grabbing;
 }
 
+.viewport[data-dragging-node="true"] {
+  cursor: move;
+}
+
 .canvas {
   display: block;
   width: 100%;

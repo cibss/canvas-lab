@@ -167,6 +167,7 @@
 }
 
 .propertiesPanel {
+  overflow-y: auto;
   border-left: 1px solid #d4d4d8;
 }
 
@@ -193,15 +194,37 @@
   display: flex;
   align-items: center;
   gap: 7px;
+  width: 100%;
   height: 30px;
+  border: 0;
   padding-right: 10px;
+  background: transparent;
   color: #3f3f46;
+  font: inherit;
+  text-align: left;
   white-space: nowrap;
   user-select: none;
 }
 
 .layerRow:hover {
   background: #f4f4f5;
+}
+
+.layerRow:focus-visible {
+  position: relative;
+  outline: 2px solid #2563eb;
+  outline-offset: -2px;
+}
+
+.layerRow:disabled {
+  color: #a1a1aa;
+  cursor: not-allowed;
+}
+
+.selectedLayerRow,
+.selectedLayerRow:hover {
+  background: #dbeafe;
+  color: #1d4ed8;
 }
 
 .layerIcon {
@@ -212,6 +235,10 @@
   width: 16px;
   color: #71717a;
   font-size: 11px;
+}
+
+.selectedLayerRow .layerIcon {
+  color: #2563eb;
 }
 
 .layerName {
@@ -226,23 +253,29 @@
   background: #e4e4e7;
 }
 
-.emptyProperties {
+.selectionSummary {
   padding: 18px 14px;
   border-bottom: 1px solid #e4e4e7;
 }
 
-.emptyProperties strong {
+.selectionSummary strong {
   display: block;
   margin-bottom: 6px;
   font-size: 13px;
   font-weight: 600;
 }
 
-.emptyProperties p {
+.selectionSummary p {
   margin: 0;
   color: #71717a;
   font-size: 12px;
   line-height: 1.5;
+  text-transform: capitalize;
+}
+
+.propertySection {
+  padding: 14px;
+  border-bottom: 1px solid #e4e4e7;
 }
 
 .documentSection {
@@ -256,6 +289,43 @@
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+.propertyGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.propertyGrid div {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: center;
+  min-width: 0;
+  height: 30px;
+  border: 1px solid #e4e4e7;
+  border-radius: 5px;
+  padding: 0 8px;
+  background: #fafafa;
+}
+
+.propertyGrid dt,
+.propertyGrid dd {
+  margin: 0;
+}
+
+.propertyGrid dt {
+  color: #a1a1aa;
+  font-size: 11px;
+}
+
+.propertyGrid dd {
+  overflow: hidden;
+  color: #27272a;
+  text-align: right;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
 }
 
 .metadata {

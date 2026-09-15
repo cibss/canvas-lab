@@ -19,7 +19,11 @@ import {
 } from "@/editor/camera/camera";
 import type { CameraState, Point } from "@/editor/camera/types";
 import { getDocumentBounds } from "@/editor/document/documentBounds";
-import { moveNodeBy } from "@/editor/document/documentOperations";
+import {
+  deleteNodes,
+  moveNodeBy,
+  moveNodesBy,
+} from "@/editor/document/documentOperations";
 import type { EditorDocument, NodeId } from "@/editor/document/types";
 import { Canvas2DRenderer } from "@/editor/renderer/Canvas2DRenderer";
 import { MarqueeOverlayRenderer } from "@/editor/renderer/MarqueeOverlayRenderer";
@@ -64,7 +68,10 @@ type PointerInteraction = "idle" | "panning" | "dragging-node" | "marquee";
 const ZOOM_SENSITIVITY = 0.0015;
 const MARQUEE_DRAG_THRESHOLD = 3;
 
-function isEditableElement(target: EventTarget | null): boolean {
+const KEYBOARD_NUDGE = 1;
+const KEYBOARD_LARGE_NUDGE = 10;
+
+function shouldIgnoreEditorShortcut(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
     return false;
   }
@@ -73,8 +80,41 @@ function isEditableElement(target: EventTarget | null): boolean {
     target.isContentEditable ||
     target instanceof HTMLInputElement ||
     target instanceof HTMLTextAreaElement ||
-    target instanceof HTMLSelectElement
+    target instanceof HTMLSelectElement ||
+    target instanceof HTMLButtonElement ||
+    target instanceof HTMLAnchorElement
   );
+}
+
+function getKeyboardMoveDelta(key: string, distance: number): Point | null {
+  switch (key) {
+    case "ArrowLeft":
+      return {
+        x: -distance,
+        y: 0,
+      };
+
+    case "ArrowRight":
+      return {
+        x: distance,
+        y: 0,
+      };
+
+    case "ArrowUp":
+      return {
+        x: 0,
+        y: -distance,
+      };
+
+    case "ArrowDown":
+      return {
+        x: 0,
+        y: distance,
+      };
+
+    default:
+      return null;
+  }
 }
 
 export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
@@ -337,8 +377,20 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         onSelectionChangeRef.current(selectionRef.current);
       };
 
-      const endPointerInteraction = (commitDocument: boolean) => {
-        if (pointerInteraction === "dragging-node" && commitDocument) {
+      const commitDocument = (nextDocument: EditorDocument) => {
+        if (nextDocument === documentRef.current) {
+          return;
+        }
+
+        documentRef.current = nextDocument;
+
+        onDocumentChangeRef.current(nextDocument);
+
+        requestRender();
+      };
+
+      const endPointerInteraction = (shouldCommitDocument: boolean) => {
+        if (pointerInteraction === "dragging-node" && shouldCommitDocument) {
           onDocumentChangeRef.current(documentRef.current);
         }
 
@@ -448,21 +500,103 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
       };
 
       const handleKeyDown = (event: KeyboardEvent) => {
-        if (event.code !== "Space" || isEditableElement(event.target)) {
+        if (shouldIgnoreEditorShortcut(event.target)) {
+          return;
+        }
+
+        if (event.code === "Space") {
+          event.preventDefault();
+
+          isSpacePressed = true;
+
+          if (pointerInteraction === "idle") {
+            viewport.dataset.panReady = "true";
+          }
+
+          return;
+        }
+
+        if (pointerInteraction !== "idle") {
+          return;
+        }
+
+        if (event.key === "Escape") {
+          const nextSelection = clearSelection(selectionRef.current);
+
+          if (nextSelection === selectionRef.current) {
+            return;
+          }
+
+          event.preventDefault();
+
+          applyRuntimeSelection(nextSelection);
+
+          commitSelection();
+
+          return;
+        }
+
+        if (
+          (event.key === "Delete" || event.key === "Backspace") &&
+          !event.metaKey &&
+          !event.ctrlKey &&
+          !event.altKey
+        ) {
+          if (selectionRef.current.selectedNodeIds.length === 0) {
+            return;
+          }
+
+          event.preventDefault();
+
+          const nextDocument = deleteNodes(
+            documentRef.current,
+            selectionRef.current.selectedNodeIds,
+          );
+
+          commitDocument(nextDocument);
+
+          const nextSelection = clearSelection(selectionRef.current);
+
+          applyRuntimeSelection(nextSelection);
+
+          commitSelection();
+
+          return;
+        }
+
+        if (event.metaKey || event.ctrlKey || event.altKey) {
+          return;
+        }
+
+        const distance = event.shiftKey ? KEYBOARD_LARGE_NUDGE : KEYBOARD_NUDGE;
+
+        const delta = getKeyboardMoveDelta(event.key, distance);
+
+        if (!delta) {
+          return;
+        }
+
+        if (selectionRef.current.selectedNodeIds.length === 0) {
           return;
         }
 
         event.preventDefault();
 
-        isSpacePressed = true;
+        const nextDocument = moveNodesBy(
+          documentRef.current,
+          selectionRef.current.selectedNodeIds,
+          delta,
+        );
 
-        if (pointerInteraction === "idle") {
-          viewport.dataset.panReady = "true";
-        }
+        commitDocument(nextDocument);
       };
 
       const handleKeyUp = (event: KeyboardEvent) => {
         if (event.code !== "Space") {
+          return;
+        }
+
+        if (shouldIgnoreEditorShortcut(event.target)) {
           return;
         }
 
@@ -487,6 +621,10 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         }
 
         event.preventDefault();
+
+        canvas.focus({
+          preventScroll: true,
+        });
 
         if (isSpacePressed) {
           startPan(event);
@@ -719,6 +857,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           ref={canvasRef}
           className={styles.canvas}
           aria-label="CanvasLab design canvas"
+          tabIndex={0}
         />
       </div>
     );

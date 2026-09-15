@@ -10,6 +10,9 @@ import type {
 } from "@/editor/document/types";
 import {
   createSelectionState,
+  isNodeSelected,
+  selectSingleNode,
+  toggleNodeSelection,
   type SelectionState,
 } from "@/editor/selection/selection";
 
@@ -26,11 +29,20 @@ const nodeIcons: Record<EditorNode["type"], string> = {
 
 interface LayerTreeProps {
   document: EditorDocument;
+  selection: SelectionState;
   nodeId: NodeId;
   depth?: number;
+
+  onSelectNode: (nodeId: NodeId, additive: boolean) => void;
 }
 
-function LayerTree({ document, nodeId, depth = 0 }: LayerTreeProps) {
+function LayerTree({
+  document,
+  selection,
+  nodeId,
+  depth = 0,
+  onSelectNode,
+}: LayerTreeProps) {
   const node = document.nodes[nodeId];
 
   if (!node) {
@@ -39,27 +51,38 @@ function LayerTree({ document, nodeId, depth = 0 }: LayerTreeProps) {
 
   const childIds = node.type === "frame" ? node.childIds : [];
 
+  const selected = isNodeSelected(selection, nodeId);
+
   return (
     <>
-      <div
-        className={styles.layerRow}
+      <button
+        type="button"
+        className={`${styles.layerRow} ${
+          selected ? styles.selectedLayerRow : ""
+        }`}
         style={{
           paddingLeft: `${12 + depth * 16}px`,
         }}
+        onClick={(event) => onSelectNode(nodeId, event.shiftKey)}
+        aria-pressed={selected}
+        disabled={node.locked}
+        title={node.locked ? `${node.name} is locked` : node.name}
       >
         <span className={styles.layerIcon} aria-hidden="true">
           {nodeIcons[node.type]}
         </span>
 
         <span className={styles.layerName}>{node.name}</span>
-      </div>
+      </button>
 
       {childIds.map((childId) => (
         <LayerTree
           key={childId}
           document={document}
+          selection={selection}
           nodeId={childId}
           depth={depth + 1}
+          onSelectNode={onSelectNode}
         />
       ))}
     </>
@@ -97,6 +120,14 @@ export function EditorShell() {
 
   const handleSelectionChange = useCallback((nextSelection: SelectionState) => {
     setSelection(nextSelection);
+  }, []);
+
+  const handleLayerSelect = useCallback((nodeId: NodeId, additive: boolean) => {
+    setSelection((currentSelection) =>
+      additive
+        ? toggleNodeSelection(currentSelection, nodeId)
+        : selectSingleNode(currentSelection, nodeId),
+    );
   }, []);
 
   return (
@@ -210,7 +241,13 @@ export function EditorShell() {
 
             <div className={styles.layers}>
               {document.rootNodeIds.map((nodeId) => (
-                <LayerTree key={nodeId} document={document} nodeId={nodeId} />
+                <LayerTree
+                  key={nodeId}
+                  document={document}
+                  selection={selection}
+                  nodeId={nodeId}
+                  onSelectNode={handleLayerSelect}
+                />
               ))}
             </div>
           </aside>
@@ -229,33 +266,78 @@ export function EditorShell() {
           <aside className={styles.propertiesPanel}>
             <div className={styles.panelHeader}>Properties</div>
 
-            <div className={styles.emptyProperties}>
-              {selectedNodeCount > 1 ? (
-                <>
-                  <strong>{selectedNodeCount} objects selected</strong>
+            {selectedNodeCount > 1 ? (
+              <div className={styles.selectionSummary}>
+                <strong>{selectedNodeCount} objects selected</strong>
 
-                  <p>
-                    Multi-selection is active. Group transformation will be
-                    added later.
-                  </p>
-                </>
-              ) : selectedNode ? (
-                <>
+                <p>
+                  Multiple objects are selected. Shared transform controls will
+                  be added in the next milestone.
+                </p>
+              </div>
+            ) : selectedNode ? (
+              <>
+                <div className={styles.selectionSummary}>
                   <strong>{selectedNode.name}</strong>
 
-                  <p>
-                    {selectedNode.type} selected. Property editing will be added
-                    later.
-                  </p>
-                </>
-              ) : (
-                <>
-                  <strong>No selection</strong>
+                  <p>{selectedNode.type}</p>
+                </div>
 
-                  <p>Select an object to inspect its properties.</p>
-                </>
-              )}
-            </div>
+                <div className={styles.propertySection}>
+                  <div className={styles.sectionTitle}>Position</div>
+
+                  <dl className={styles.propertyGrid}>
+                    <div>
+                      <dt>X</dt>
+                      <dd>{Math.round(selectedNode.x)}</dd>
+                    </div>
+
+                    <div>
+                      <dt>Y</dt>
+                      <dd>{Math.round(selectedNode.y)}</dd>
+                    </div>
+                  </dl>
+                </div>
+
+                <div className={styles.propertySection}>
+                  <div className={styles.sectionTitle}>Size</div>
+
+                  <dl className={styles.propertyGrid}>
+                    <div>
+                      <dt>W</dt>
+                      <dd>{Math.round(selectedNode.width)}</dd>
+                    </div>
+
+                    <div>
+                      <dt>H</dt>
+                      <dd>{Math.round(selectedNode.height)}</dd>
+                    </div>
+                  </dl>
+                </div>
+
+                <div className={styles.propertySection}>
+                  <div className={styles.sectionTitle}>Transform</div>
+
+                  <dl className={styles.metadata}>
+                    <div>
+                      <dt>Rotation</dt>
+                      <dd>{selectedNode.rotation}°</dd>
+                    </div>
+
+                    <div>
+                      <dt>Opacity</dt>
+                      <dd>{Math.round(selectedNode.opacity * 100)}%</dd>
+                    </div>
+                  </dl>
+                </div>
+              </>
+            ) : (
+              <div className={styles.selectionSummary}>
+                <strong>No selection</strong>
+
+                <p>Select an object to inspect its properties.</p>
+              </div>
+            )}
 
             <div className={styles.documentSection}>
               <div className={styles.sectionTitle}>Document</div>

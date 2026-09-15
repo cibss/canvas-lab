@@ -1,41 +1,21 @@
 import type { Point } from "@/editor/camera/types";
+import { worldPointToNodeLocal } from "@/editor/document/nodeGeometry";
 import type {
   EditorDocument,
   EditorNode,
   NodeId,
 } from "@/editor/document/types";
 
-interface NodePosition {
-  x: number;
-  y: number;
-}
-
-interface HitTestNodeOptions {
-  document: EditorDocument;
-  node: EditorNode;
-  point: Point;
-  parentPosition: NodePosition;
-}
-
 function isPointInsideRectangle(
   point: Point,
-  x: number,
-  y: number,
   width: number,
   height: number,
 ): boolean {
-  return (
-    point.x >= x &&
-    point.x <= x + width &&
-    point.y >= y &&
-    point.y <= y + height
-  );
+  return point.x >= 0 && point.x <= width && point.y >= 0 && point.y <= height;
 }
 
 function isPointInsideEllipse(
   point: Point,
-  x: number,
-  y: number,
   width: number,
   height: number,
 ): boolean {
@@ -44,46 +24,40 @@ function isPointInsideEllipse(
   }
 
   const radiusX = width / 2;
+
   const radiusY = height / 2;
 
-  const centerX = x + radiusX;
-  const centerY = y + radiusY;
+  const normalizedX = (point.x - radiusX) / radiusX;
 
-  const normalizedX = (point.x - centerX) / radiusX;
-
-  const normalizedY = (point.y - centerY) / radiusY;
+  const normalizedY = (point.y - radiusY) / radiusY;
 
   return normalizedX * normalizedX + normalizedY * normalizedY <= 1;
 }
 
-function isPointInsideNode(
-  point: Point,
-  node: EditorNode,
-  worldX: number,
-  worldY: number,
-): boolean {
+function isPointInsideNode(point: Point, node: EditorNode): boolean {
   if (node.type === "ellipse") {
-    return isPointInsideEllipse(point, worldX, worldY, node.width, node.height);
+    return isPointInsideEllipse(point, node.width, node.height);
   }
 
-  return isPointInsideRectangle(point, worldX, worldY, node.width, node.height);
+  return isPointInsideRectangle(point, node.width, node.height);
 }
 
-function hitTestNode({
-  document,
-  node,
-  point,
-  parentPosition,
-}: HitTestNodeOptions): NodeId | null {
+function hitTestNode(
+  document: EditorDocument,
+  node: EditorNode,
+  worldPoint: Point,
+): NodeId | null {
   if (!node.visible || node.locked) {
     return null;
   }
 
-  const worldX = parentPosition.x + node.x;
+  const localPoint = worldPointToNodeLocal(document, node.id, worldPoint);
 
-  const worldY = parentPosition.y + node.y;
+  if (!localPoint) {
+    return null;
+  }
 
-  const pointInsideNode = isPointInsideNode(point, node, worldX, worldY);
+  const pointInsideNode = isPointInsideNode(localPoint, node);
 
   if (node.type === "frame") {
     if (node.clipContent && !pointInsideNode) {
@@ -99,15 +73,7 @@ function hitTestNode({
         continue;
       }
 
-      const childHit = hitTestNode({
-        document,
-        node: child,
-        point,
-        parentPosition: {
-          x: worldX,
-          y: worldY,
-        },
-      });
+      const childHit = hitTestNode(document, child, worldPoint);
 
       if (childHit) {
         return childHit;
@@ -135,15 +101,7 @@ export function hitTestDocument(
       continue;
     }
 
-    const hit = hitTestNode({
-      document,
-      node: rootNode,
-      point,
-      parentPosition: {
-        x: 0,
-        y: 0,
-      },
-    });
+    const hit = hitTestNode(document, rootNode, point);
 
     if (hit) {
       return hit;

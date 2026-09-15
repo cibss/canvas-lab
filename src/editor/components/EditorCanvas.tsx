@@ -19,12 +19,11 @@ import {
 } from "@/editor/camera/camera";
 import type { CameraState, Point } from "@/editor/camera/types";
 import { getDocumentBounds } from "@/editor/document/documentBounds";
-import { getNodeWorldBounds } from "@/editor/document/nodeGeometry";
+import { getNodeWorldGeometry } from "@/editor/document/nodeGeometry";
 import {
   deleteNodes,
   moveNodeBy,
   moveNodesBy,
-  resizeNodeToWorldBounds,
 } from "@/editor/document/documentOperations";
 import type { EditorDocument, NodeId } from "@/editor/document/types";
 import { Canvas2DRenderer } from "@/editor/renderer/Canvas2DRenderer";
@@ -44,10 +43,25 @@ import {
   toggleNodeSelection,
   type SelectionState,
 } from "@/editor/selection/selection";
-import { resizeBoundsFromHandle } from "@/editor/transform/resizeBounds";
-import { findResizeHandleAtPoint } from "@/editor/transform/resizeHandles";
-import { getSelectionBounds } from "@/editor/transform/selectionBounds";
-import type { ResizeHandlePosition } from "@/editor/transform/types";
+import {
+  createNodeResizeSession,
+  resizeNodeWithSession,
+  type NodeResizeSession,
+} from "@/editor/transform/nodeResize";
+import {
+  findNodeResizeHandleAtPoint,
+  getResizeHandleCursor,
+} from "@/editor/transform/resizeHandles";
+import {
+  getPointerAngleDegrees,
+  getShortestAngleDelta,
+  normalizeRotation,
+  rotateNodeTo,
+} from "@/editor/transform/rotation";
+import {
+  getRotationHandleGeometry,
+  isPointOnRotationHandle,
+} from "@/editor/transform/rotationHandle";
 
 import styles from "./EditorCanvas.module.css";
 
@@ -74,9 +88,11 @@ type PointerInteraction =
   | "panning"
   | "dragging-node"
   | "resizing-node"
+  | "rotating-node"
   | "marquee";
 
 const ZOOM_SENSITIVITY = 0.0015;
+
 const MARQUEE_DRAG_THRESHOLD = 3;
 
 const KEYBOARD_NUDGE = 1;
@@ -125,26 +141,6 @@ function getKeyboardMoveDelta(key: string, distance: number): Point | null {
 
     default:
       return null;
-  }
-}
-
-function getResizeHandleCursor(handle: ResizeHandlePosition): string {
-  switch (handle) {
-    case "north":
-    case "south":
-      return "ns-resize";
-
-    case "east":
-    case "west":
-      return "ew-resize";
-
-    case "north-west":
-    case "south-east":
-      return "nwse-resize";
-
-    case "north-east":
-    case "south-west":
-      return "nesw-resize";
   }
 }
 
@@ -219,6 +215,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
       return {
         x: rect.width / 2,
+
         y: rect.height / 2,
       };
     }, []);
@@ -265,6 +262,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           applyCamera(
             fitCameraToBounds(bounds, {
               width: rect.width,
+
               height: rect.height,
             }),
           );
@@ -311,16 +309,17 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
       let lastDragWorldPosition: Point | null = null;
 
-      let resizingNodeId: NodeId | null = null;
+      let resizeSession: NodeResizeSession | null = null;
 
-      let activeResizeHandle: ResizeHandlePosition | null = null;
+      let rotatingNodeId: NodeId | null = null;
 
-      let initialResizeBounds: {
-        x: number;
-        y: number;
-        width: number;
-        height: number;
-      } | null = null;
+      let rotationCenter: Point | null = null;
+
+      let initialNodeRotation = 0;
+
+      let lastRotationPointerAngle = 0;
+
+      let accumulatedRotationDelta = 0;
 
       let marquee: MarqueeState | null = null;
 
@@ -431,54 +430,78 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         requestRender();
       };
 
-      const clearResizeCursor = () => {
-        delete viewport.dataset.resizeHandle;
+      const clearTransformCursor = () => {
+        delete viewport.dataset.transformHandle;
 
         viewport.style.cursor = "";
       };
 
-      const updateResizeHandleHover = (event: PointerEvent) => {
+      const updateTransformHover = (event: PointerEvent) => {
         if (
           isSpacePressed ||
           selectionRef.current.selectedNodeIds.length !== 1
         ) {
-          clearResizeCursor();
+          clearTransformCursor();
 
           return;
         }
 
-        const bounds = getSelectionBounds(
-          documentRef.current,
-          selectionRef.current,
-        );
+        const nodeId = selectionRef.current.selectedNodeIds[0];
 
-        if (!bounds) {
-          clearResizeCursor();
+        const geometry = getNodeWorldGeometry(documentRef.current, nodeId);
+
+        if (!geometry) {
+          clearTransformCursor();
 
           return;
         }
 
-        const handle = findResizeHandleAtPoint(
-          bounds,
-          getWorldPoint(event),
+        const worldPoint = getWorldPoint(event);
+
+        const rotationHandle = getRotationHandleGeometry(
+          geometry,
           cameraRef.current.zoom,
         );
 
-        if (!handle) {
-          clearResizeCursor();
+        if (
+          isPointOnRotationHandle(
+            rotationHandle,
+            worldPoint,
+            cameraRef.current.zoom,
+          )
+        ) {
+          viewport.dataset.transformHandle = "rotation";
+
+          viewport.style.cursor = "grab";
 
           return;
         }
 
-        viewport.dataset.resizeHandle = handle;
+        const resizeHandle = findNodeResizeHandleAtPoint(
+          geometry,
+          worldPoint,
+          cameraRef.current.zoom,
+        );
 
-        viewport.style.cursor = getResizeHandleCursor(handle);
+        if (!resizeHandle) {
+          clearTransformCursor();
+
+          return;
+        }
+
+        viewport.dataset.transformHandle = resizeHandle;
+
+        viewport.style.cursor = getResizeHandleCursor(
+          resizeHandle,
+          geometry.rotation,
+        );
       };
 
       const endPointerInteraction = (shouldCommitDocument: boolean) => {
         if (
           (pointerInteraction === "dragging-node" ||
-            pointerInteraction === "resizing-node") &&
+            pointerInteraction === "resizing-node" ||
+            pointerInteraction === "rotating-node") &&
           shouldCommitDocument
         ) {
           onDocumentChangeRef.current(documentRef.current);
@@ -492,11 +515,17 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
         lastDragWorldPosition = null;
 
-        resizingNodeId = null;
+        resizeSession = null;
 
-        activeResizeHandle = null;
+        rotatingNodeId = null;
 
-        initialResizeBounds = null;
+        rotationCenter = null;
+
+        initialNodeRotation = 0;
+
+        lastRotationPointerAngle = 0;
+
+        accumulatedRotationDelta = 0;
 
         marquee = null;
 
@@ -508,16 +537,20 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
         delete viewport.dataset.resizingNode;
 
+        delete viewport.dataset.rotatingNode;
+
         delete viewport.dataset.marqueeSelecting;
 
-        clearResizeCursor();
+        clearTransformCursor();
 
         requestRender();
       };
 
       const startNodeDrag = (
         event: PointerEvent,
+
         nodeId: NodeId,
+
         worldPoint: Point,
       ) => {
         pointerInteraction = "dragging-node";
@@ -535,12 +568,18 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
       const startResize = (
         event: PointerEvent,
-        nodeId: NodeId,
-        handle: ResizeHandlePosition,
-      ) => {
-        const nodeBounds = getNodeWorldBounds(documentRef.current, nodeId);
 
-        if (!nodeBounds) {
+        nodeId: NodeId,
+
+        handle: Parameters<typeof createNodeResizeSession>[2],
+      ) => {
+        const session = createNodeResizeSession(
+          documentRef.current,
+          nodeId,
+          handle,
+        );
+
+        if (!session) {
           return;
         }
 
@@ -548,19 +587,56 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
         activePointerId = event.pointerId;
 
-        resizingNodeId = nodeId;
-
-        activeResizeHandle = handle;
-
-        initialResizeBounds = nodeBounds;
+        resizeSession = session;
 
         canvas.setPointerCapture(event.pointerId);
 
         viewport.dataset.resizingNode = "true";
 
-        viewport.dataset.resizeHandle = handle;
+        viewport.dataset.transformHandle = handle;
 
-        viewport.style.cursor = getResizeHandleCursor(handle);
+        viewport.style.cursor = getResizeHandleCursor(
+          handle,
+          session.worldRotation,
+        );
+      };
+
+      const startRotation = (
+        event: PointerEvent,
+
+        nodeId: NodeId,
+
+        center: Point,
+
+        worldPoint: Point,
+      ) => {
+        const node = documentRef.current.nodes[nodeId];
+
+        if (!node || node.locked) {
+          return;
+        }
+
+        pointerInteraction = "rotating-node";
+
+        activePointerId = event.pointerId;
+
+        rotatingNodeId = nodeId;
+
+        rotationCenter = center;
+
+        initialNodeRotation = node.rotation;
+
+        lastRotationPointerAngle = getPointerAngleDegrees(center, worldPoint);
+
+        accumulatedRotationDelta = 0;
+
+        canvas.setPointerCapture(event.pointerId);
+
+        viewport.dataset.rotatingNode = "true";
+
+        viewport.dataset.transformHandle = "rotation";
+
+        viewport.style.cursor = "grabbing";
       };
 
       const startPan = (event: PointerEvent) => {
@@ -578,13 +654,18 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         viewport.dataset.panning = "true";
       };
 
-      const startMarquee = (event: PointerEvent, worldPoint: Point) => {
+      const startMarquee = (
+        event: PointerEvent,
+
+        worldPoint: Point,
+      ) => {
         pointerInteraction = "marquee";
 
         activePointerId = event.pointerId;
 
         marquee = {
           start: worldPoint,
+
           current: worldPoint,
         };
 
@@ -594,6 +675,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
         marqueeStartClientPosition = {
           x: event.clientX,
+
           y: event.clientY,
         };
 
@@ -632,16 +714,14 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
       };
 
       const updateNodeResize = (event: PointerEvent) => {
-        if (!resizingNodeId || !activeResizeHandle || !initialResizeBounds) {
+        if (!resizeSession) {
           return;
         }
 
-        const pointerWorld = getWorldPoint(event);
-
-        const nextBounds = resizeBoundsFromHandle(
-          initialResizeBounds,
-          activeResizeHandle,
-          pointerWorld,
+        documentRef.current = resizeNodeWithSession(
+          documentRef.current,
+          resizeSession,
+          getWorldPoint(event),
           {
             preserveAspectRatio: event.shiftKey,
 
@@ -649,10 +729,36 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           },
         );
 
-        documentRef.current = resizeNodeToWorldBounds(
+        requestRender();
+      };
+
+      const updateNodeRotation = (event: PointerEvent) => {
+        if (!rotatingNodeId || !rotationCenter) {
+          return;
+        }
+
+        const currentAngle = getPointerAngleDegrees(
+          rotationCenter,
+          getWorldPoint(event),
+        );
+
+        const delta = getShortestAngleDelta(
+          lastRotationPointerAngle,
+          currentAngle,
+        );
+
+        accumulatedRotationDelta += delta;
+
+        lastRotationPointerAngle = currentAngle;
+
+        const nextRotation = normalizeRotation(
+          initialNodeRotation + accumulatedRotationDelta,
+        );
+
+        documentRef.current = rotateNodeTo(
           documentRef.current,
-          resizingNodeId,
-          nextBounds,
+          rotatingNodeId,
+          nextRotation,
         );
 
         requestRender();
@@ -668,7 +774,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
           isSpacePressed = true;
 
-          clearResizeCursor();
+          clearTransformCursor();
 
           if (pointerInteraction === "idle") {
             viewport.dataset.panReady = "true";
@@ -743,13 +849,13 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
         event.preventDefault();
 
-        const nextDocument = moveNodesBy(
-          documentRef.current,
-          selectionRef.current.selectedNodeIds,
-          delta,
+        commitDocument(
+          moveNodesBy(
+            documentRef.current,
+            selectionRef.current.selectedNodeIds,
+            delta,
+          ),
         );
-
-        commitDocument(nextDocument);
       };
 
       const handleKeyUp = (event: KeyboardEvent) => {
@@ -798,14 +904,31 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         if (selectionRef.current.selectedNodeIds.length === 1) {
           const selectedNodeId = selectionRef.current.selectedNodeIds[0];
 
-          const bounds = getSelectionBounds(
+          const geometry = getNodeWorldGeometry(
             documentRef.current,
-            selectionRef.current,
+            selectedNodeId,
           );
 
-          if (bounds) {
-            const resizeHandle = findResizeHandleAtPoint(
-              bounds,
+          if (geometry) {
+            const rotationHandle = getRotationHandleGeometry(
+              geometry,
+              cameraRef.current.zoom,
+            );
+
+            if (
+              isPointOnRotationHandle(
+                rotationHandle,
+                worldPoint,
+                cameraRef.current.zoom,
+              )
+            ) {
+              startRotation(event, selectedNodeId, geometry.center, worldPoint);
+
+              return;
+            }
+
+            const resizeHandle = findNodeResizeHandleAtPoint(
+              geometry,
               worldPoint,
               cameraRef.current.zoom,
             );
@@ -847,7 +970,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
       const handlePointerMove = (event: PointerEvent) => {
         if (pointerInteraction === "idle") {
-          updateResizeHandleHover(event);
+          updateTransformHover(event);
 
           return;
         }
@@ -863,6 +986,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
           lastPointerPosition = {
             x: event.clientX,
+
             y: event.clientY,
           };
 
@@ -875,6 +999,12 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
         if (pointerInteraction === "resizing-node") {
           updateNodeResize(event);
+
+          return;
+        }
+
+        if (pointerInteraction === "rotating-node") {
+          updateNodeRotation(event);
 
           return;
         }
@@ -931,11 +1061,11 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
             : 0;
 
           if (dragDistance < MARQUEE_DRAG_THRESHOLD) {
-            if (marqueeAdditive) {
-              applyRuntimeSelection(marqueeBaseSelection);
-            } else {
-              applyRuntimeSelection(clearSelection(selectionRef.current));
-            }
+            applyRuntimeSelection(
+              marqueeAdditive
+                ? marqueeBaseSelection
+                : clearSelection(selectionRef.current),
+            );
           }
 
           commitSelection();
@@ -943,6 +1073,10 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
         if (pointerInteraction === "resizing-node") {
           updateNodeResize(event);
+        }
+
+        if (pointerInteraction === "rotating-node") {
+          updateNodeRotation(event);
         }
 
         releasePointerCapture(event.pointerId);
@@ -986,7 +1120,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
       const handlePointerLeave = () => {
         if (pointerInteraction === "idle") {
-          clearResizeCursor();
+          clearTransformCursor();
         }
       };
 

@@ -1,42 +1,51 @@
 import type { Bounds } from "@/editor/camera/types";
 
-import type { EditorDocument, EditorNode } from "./types";
+import { getNodeWorldBounds } from "./nodeGeometry";
+import type { EditorDocument } from "./types";
 
 export function getDocumentBounds(document: EditorDocument): Bounds | null {
-  const rootNodes: EditorNode[] = [];
-
-  for (const rootNodeId of document.rootNodeIds) {
-    const rootNode = document.nodes[rootNodeId];
-
-    if (rootNode) {
-      rootNodes.push(rootNode);
-    }
-  }
-
-  if (rootNodes.length === 0) {
+  if (document.rootNodeIds.length === 0) {
     return null;
   }
 
   let minX = Number.POSITIVE_INFINITY;
+
   let minY = Number.POSITIVE_INFINITY;
 
   let maxX = Number.NEGATIVE_INFINITY;
+
   let maxY = Number.NEGATIVE_INFINITY;
 
-  for (const node of rootNodes) {
-    minX = Math.min(minX, node.x);
+  let hasValidRoot = false;
 
-    minY = Math.min(minY, node.y);
+  for (const rootNodeId of document.rootNodeIds) {
+    const bounds = getNodeWorldBounds(document, rootNodeId);
 
-    maxX = Math.max(maxX, node.x + node.width);
+    if (!bounds) {
+      continue;
+    }
 
-    maxY = Math.max(maxY, node.y + node.height);
+    hasValidRoot = true;
+
+    minX = Math.min(minX, bounds.x);
+
+    minY = Math.min(minY, bounds.y);
+
+    maxX = Math.max(maxX, bounds.x + bounds.width);
+
+    maxY = Math.max(maxY, bounds.y + bounds.height);
+  }
+
+  if (!hasValidRoot) {
+    return null;
   }
 
   return {
     x: minX,
     y: minY,
+
     width: maxX - minX,
+
     height: maxY - minY,
   };
 }

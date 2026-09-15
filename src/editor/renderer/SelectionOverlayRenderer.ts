@@ -1,10 +1,16 @@
 import type { CameraState } from "@/editor/camera/types";
-import { getNodeWorldBounds } from "@/editor/document/nodeGeometry";
 import type { EditorDocument } from "@/editor/document/types";
 import type { SelectionState } from "@/editor/selection/selection";
+import { getResizeHandles } from "@/editor/transform/resizeHandles";
+import { getSelectionBounds } from "@/editor/transform/selectionBounds";
 
 const SELECTION_COLOR = "#2563eb";
+
+const HANDLE_FILL = "#ffffff";
+
 const SELECTION_STROKE_WIDTH = 1.5;
+
+const HANDLE_SIZE = 8;
 
 export class SelectionOverlayRenderer {
   private readonly context: CanvasRenderingContext2D;
@@ -19,7 +25,9 @@ export class SelectionOverlayRenderer {
     camera: CameraState,
     pixelRatio = 1,
   ) {
-    if (selection.selectedNodeIds.length === 0) {
+    const bounds = getSelectionBounds(document, selection);
+
+    if (!bounds) {
       return;
     }
 
@@ -31,14 +39,24 @@ export class SelectionOverlayRenderer {
 
     this.context.lineWidth = SELECTION_STROKE_WIDTH / camera.zoom;
 
-    for (const nodeId of selection.selectedNodeIds) {
-      const bounds = getNodeWorldBounds(document, nodeId);
+    this.context.strokeRect(bounds.x, bounds.y, bounds.width, bounds.height);
 
-      if (!bounds) {
-        continue;
-      }
+    const handles = getResizeHandles(bounds);
 
-      this.context.strokeRect(bounds.x, bounds.y, bounds.width, bounds.height);
+    const handleSize = HANDLE_SIZE / camera.zoom;
+
+    const handleOffset = handleSize / 2;
+
+    this.context.fillStyle = HANDLE_FILL;
+
+    for (const handle of handles) {
+      const x = handle.point.x - handleOffset;
+
+      const y = handle.point.y - handleOffset;
+
+      this.context.fillRect(x, y, handleSize, handleSize);
+
+      this.context.strokeRect(x, y, handleSize, handleSize);
     }
 
     this.context.restore();
@@ -52,7 +70,9 @@ export class SelectionOverlayRenderer {
       0,
       0,
       scale,
+
       camera.offsetX * pixelRatio,
+
       camera.offsetY * pixelRatio,
     );
   }

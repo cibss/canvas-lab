@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { deleteNodes, moveNodeBy, moveNodesBy } from "./documentOperations";
 import { sampleDocument } from "./sampleDocument";
+import type { EditorDocument } from "./types";
 
 describe("document operations", () => {
   describe("moveNodeBy", () => {
@@ -95,6 +96,35 @@ describe("document operations", () => {
 
       expect(result.nodes["rectangle-hero"].y).toBe(64);
     });
+
+    it("does not move locked nodes", () => {
+      const document: EditorDocument = {
+        ...sampleDocument,
+
+        nodes: {
+          ...sampleDocument.nodes,
+
+          "rectangle-hero": {
+            ...sampleDocument.nodes["rectangle-hero"],
+
+            locked: true,
+          },
+        },
+      };
+
+      const result = moveNodesBy(document, ["rectangle-hero", "text-title"], {
+        x: 10,
+        y: 20,
+      });
+
+      expect(result.nodes["rectangle-hero"].x).toBe(64);
+
+      expect(result.nodes["rectangle-hero"].y).toBe(64);
+
+      expect(result.nodes["text-title"].x).toBe(122);
+
+      expect(result.nodes["text-title"].y).toBe(172);
+    });
   });
 
   describe("deleteNodes", () => {
@@ -131,6 +161,48 @@ describe("document operations", () => {
       expect(result.rootNodeIds).toEqual([]);
 
       expect(result.nodes).toEqual({});
+    });
+
+    it("does not delete a locked node", () => {
+      const document: EditorDocument = {
+        ...sampleDocument,
+
+        nodes: {
+          ...sampleDocument.nodes,
+
+          "rectangle-hero": {
+            ...sampleDocument.nodes["rectangle-hero"],
+
+            locked: true,
+          },
+        },
+      };
+
+      const result = deleteNodes(document, ["rectangle-hero", "text-title"]);
+
+      expect(result.nodes["rectangle-hero"]).toBeDefined();
+
+      expect(result.nodes["text-title"]).toBeUndefined();
+    });
+
+    it("returns the same document when every selected node is locked", () => {
+      const document: EditorDocument = {
+        ...sampleDocument,
+
+        nodes: {
+          ...sampleDocument.nodes,
+
+          "rectangle-hero": {
+            ...sampleDocument.nodes["rectangle-hero"],
+
+            locked: true,
+          },
+        },
+      };
+
+      const result = deleteNodes(document, ["rectangle-hero"]);
+
+      expect(result).toBe(document);
     });
   });
 });

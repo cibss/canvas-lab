@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import type { EditorDocument } from "@/editor/document/types";
+import { moveNodeBy } from "@/editor/document/documentOperations";
 import { sampleDocument } from "@/editor/document/sampleDocument";
+import type { EditorDocument } from "@/editor/document/types";
 
 import { findNodesWithinMarquee, getMarqueeBounds } from "./marquee";
 
@@ -38,6 +39,17 @@ describe("marquee selection", () => {
     expect(result).toEqual(["text-title"]);
   });
 
+  it("does not select a node that is only partially inside the marquee", () => {
+    const result = findNodesWithinMarquee(sampleDocument, {
+      x: 230,
+      y: 230,
+      width: 300,
+      height: 100,
+    });
+
+    expect(result).toEqual([]);
+  });
+
   it("selects multiple child nodes", () => {
     const result = findNodesWithinMarquee(sampleDocument, {
       x: 170,
@@ -68,6 +80,22 @@ describe("marquee selection", () => {
     ]);
   });
 
+  it("uses updated document geometry after a node moves", () => {
+    const document = moveNodeBy(sampleDocument, "text-title", {
+      x: 0,
+      y: 200,
+    });
+
+    const result = findNodesWithinMarquee(document, {
+      x: 220,
+      y: 420,
+      width: 600,
+      height: 100,
+    });
+
+    expect(result).toEqual(["text-title"]);
+  });
+
   it("ignores locked nodes", () => {
     const document: EditorDocument = {
       ...sampleDocument,
@@ -79,6 +107,31 @@ describe("marquee selection", () => {
           ...sampleDocument.nodes["text-title"],
 
           locked: true,
+        },
+      },
+    };
+
+    const result = findNodesWithinMarquee(document, {
+      x: 220,
+      y: 220,
+      width: 600,
+      height: 100,
+    });
+
+    expect(result).toEqual([]);
+  });
+
+  it("ignores invisible nodes", () => {
+    const document: EditorDocument = {
+      ...sampleDocument,
+
+      nodes: {
+        ...sampleDocument.nodes,
+
+        "text-title": {
+          ...sampleDocument.nodes["text-title"],
+
+          visible: false,
         },
       },
     };

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import type { EditorDocument } from "@/editor/document/types";
+import { moveNodeBy } from "@/editor/document/documentOperations";
 import { sampleDocument } from "@/editor/document/sampleDocument";
+import type { EditorDocument } from "@/editor/document/types";
 
 import { hitTestDocument } from "./hitTest";
 
@@ -162,6 +163,50 @@ describe("hitTestDocument", () => {
         y: 160,
       }),
     ).toBe("frame-main");
+  });
+
+  it("ignores invisible nodes", () => {
+    const document: EditorDocument = {
+      ...sampleDocument,
+
+      nodes: {
+        ...sampleDocument.nodes,
+
+        "text-title": {
+          ...sampleDocument.nodes["text-title"],
+
+          visible: false,
+        },
+      },
+    };
+
+    expect(
+      hitTestDocument(document, {
+        x: 250,
+        y: 250,
+      }),
+    ).toBe("rectangle-hero");
+  });
+
+  it("uses the updated node position after the document changes", () => {
+    const document = moveNodeBy(sampleDocument, "text-title", {
+      x: 0,
+      y: 200,
+    });
+
+    expect(
+      hitTestDocument(document, {
+        x: 250,
+        y: 450,
+      }),
+    ).toBe("text-title");
+
+    expect(
+      hitTestDocument(document, {
+        x: 250,
+        y: 250,
+      }),
+    ).toBe("rectangle-hero");
   });
 
   it("does not hit clipped children outside their frame", () => {

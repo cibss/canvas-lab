@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { resizeBoundsFromHandle } from "./resizeBounds";
+import {
+  DEFAULT_MIN_RESIZE_SIZE,
+  resizeBoundsFromHandle,
+} from "./resizeBounds";
 
 const initialBounds = {
   x: 100,
@@ -71,7 +74,7 @@ describe("resizeBoundsFromHandle", () => {
     });
   });
 
-  it("prevents the east edge from crossing the west edge", () => {
+  it("enforces the minimum width", () => {
     expect(
       resizeBoundsFromHandle(initialBounds, "east", {
         x: 50,
@@ -81,23 +84,163 @@ describe("resizeBoundsFromHandle", () => {
       x: 100,
       y: 200,
 
-      width: 1,
+      width: DEFAULT_MIN_RESIZE_SIZE,
+
       height: 300,
     });
   });
 
-  it("prevents the north-west handle from crossing the opposite corner", () => {
+  it("enforces minimum dimensions when resizing from north-west", () => {
     expect(
       resizeBoundsFromHandle(initialBounds, "north-west", {
         x: 900,
         y: 900,
       }),
     ).toEqual({
-      x: 499,
-      y: 499,
+      x: 500 - DEFAULT_MIN_RESIZE_SIZE,
 
-      width: 1,
-      height: 1,
+      y: 500 - DEFAULT_MIN_RESIZE_SIZE,
+
+      width: DEFAULT_MIN_RESIZE_SIZE,
+
+      height: DEFAULT_MIN_RESIZE_SIZE,
     });
+  });
+
+  it("preserves aspect ratio when resizing from a corner", () => {
+    expect(
+      resizeBoundsFromHandle(
+        initialBounds,
+        "south-east",
+        {
+          x: 700,
+          y: 500,
+        },
+        {
+          preserveAspectRatio: true,
+        },
+      ),
+    ).toEqual({
+      x: 100,
+      y: 200,
+
+      width: 600,
+      height: 450,
+    });
+  });
+
+  it("preserves aspect ratio when resizing from a side handle", () => {
+    expect(
+      resizeBoundsFromHandle(
+        initialBounds,
+        "east",
+        {
+          x: 700,
+          y: 350,
+        },
+        {
+          preserveAspectRatio: true,
+        },
+      ),
+    ).toEqual({
+      x: 100,
+      y: 125,
+
+      width: 600,
+      height: 450,
+    });
+  });
+
+  it("resizes horizontally from the center", () => {
+    expect(
+      resizeBoundsFromHandle(
+        initialBounds,
+        "east",
+        {
+          x: 550,
+          y: 350,
+        },
+        {
+          fromCenter: true,
+        },
+      ),
+    ).toEqual({
+      x: 50,
+      y: 200,
+
+      width: 500,
+      height: 300,
+    });
+  });
+
+  it("resizes from a corner while keeping the center fixed", () => {
+    expect(
+      resizeBoundsFromHandle(
+        initialBounds,
+        "south-east",
+        {
+          x: 600,
+          y: 650,
+        },
+        {
+          fromCenter: true,
+        },
+      ),
+    ).toEqual({
+      x: 0,
+      y: 50,
+
+      width: 600,
+      height: 600,
+    });
+  });
+
+  it("preserves aspect ratio while resizing from the center", () => {
+    expect(
+      resizeBoundsFromHandle(
+        initialBounds,
+        "south-east",
+        {
+          x: 600,
+          y: 500,
+        },
+        {
+          fromCenter: true,
+          preserveAspectRatio: true,
+        },
+      ),
+    ).toEqual({
+      x: 0,
+      y: 125,
+
+      width: 600,
+      height: 450,
+    });
+  });
+
+  it("preserves aspect ratio while enforcing minimum dimensions", () => {
+    const result = resizeBoundsFromHandle(
+      initialBounds,
+      "south-east",
+      {
+        x: 101,
+        y: 201,
+      },
+      {
+        preserveAspectRatio: true,
+      },
+    );
+
+    expect(result).toEqual({
+      x: 100,
+      y: 200,
+
+      width: 32,
+      height: 24,
+    });
+
+    expect(result.width / result.height).toBeCloseTo(
+      initialBounds.width / initialBounds.height,
+    );
   });
 });

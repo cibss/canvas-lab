@@ -489,10 +489,13 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         activePointerId = null;
 
         draggedNodeId = null;
+
         lastDragWorldPosition = null;
 
         resizingNodeId = null;
+
         activeResizeHandle = null;
+
         initialResizeBounds = null;
 
         marquee = null;
@@ -639,6 +642,11 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           initialResizeBounds,
           activeResizeHandle,
           pointerWorld,
+          {
+            preserveAspectRatio: event.shiftKey,
+
+            fromCenter: event.altKey,
+          },
         );
 
         documentRef.current = resizeNodeToWorldBounds(

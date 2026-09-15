@@ -1,60 +1,15 @@
 import type { Bounds, Point } from "@/editor/camera/types";
+import {
+  getNodeParentWorldTransform,
+  getNodeWorldPosition,
+} from "@/editor/document/nodeGeometry";
+import {
+  getMatrixRotationDegrees,
+  rotateVector,
+} from "@/editor/geometry/matrix";
+import { getTopLevelSelectedNodeIds } from "@/editor/selection/selectionHierarchy";
 
-import { getNodeWorldPosition } from "./nodeGeometry";
 import type { EditorDocument, EditorNode, NodeId } from "./types";
-
-function hasSelectedAncestor(
-  document: EditorDocument,
-  nodeId: NodeId,
-  selectedNodeIds: ReadonlySet<NodeId>,
-): boolean {
-  const node = document.nodes[nodeId];
-
-  if (!node) {
-    return false;
-  }
-
-  let parentId = node.parentId;
-
-  const visitedNodeIds = new Set<NodeId>();
-
-  while (parentId) {
-    if (visitedNodeIds.has(parentId)) {
-      return false;
-    }
-
-    visitedNodeIds.add(parentId);
-
-    if (selectedNodeIds.has(parentId)) {
-      return true;
-    }
-
-    const parent = document.nodes[parentId];
-
-    if (!parent) {
-      return false;
-    }
-
-    parentId = parent.parentId;
-  }
-
-  return false;
-}
-
-function getTopLevelNodeIds(
-  document: EditorDocument,
-  nodeIds: NodeId[],
-): NodeId[] {
-  const validNodeIds = Array.from(new Set(nodeIds)).filter(
-    (nodeId) => document.nodes[nodeId],
-  );
-
-  const selectedNodeIds = new Set(validNodeIds);
-
-  return validNodeIds.filter(
-    (nodeId) => !hasSelectedAncestor(document, nodeId, selectedNodeIds),
-  );
-}
 
 function collectDescendantNodeIds(
   document: EditorDocument,
@@ -99,7 +54,7 @@ export function moveNodesBy(
     return document;
   }
 
-  const topLevelNodeIds = getTopLevelNodeIds(document, nodeIds);
+  const topLevelNodeIds = getTopLevelSelectedNodeIds(document, nodeIds);
 
   if (topLevelNodeIds.length === 0) {
     return document;
@@ -118,12 +73,22 @@ export function moveNodesBy(
       continue;
     }
 
+    const parentTransform = getNodeParentWorldTransform(document, nodeId);
+
+    if (!parentTransform) {
+      continue;
+    }
+
+    const parentRotation = getMatrixRotationDegrees(parentTransform);
+
+    const localDelta = rotateVector(delta, -parentRotation);
+
     nextNodes[nodeId] = {
       ...node,
 
-      x: node.x + delta.x,
+      x: node.x + localDelta.x,
 
-      y: node.y + delta.y,
+      y: node.y + localDelta.y,
     };
 
     hasChanges = true;
@@ -195,6 +160,7 @@ export function resizeNodeToWorldBounds(
         y: nextY,
 
         width: nextWidth,
+
         height: nextHeight,
       },
     },
@@ -205,7 +171,7 @@ export function deleteNodes(
   document: EditorDocument,
   nodeIds: NodeId[],
 ): EditorDocument {
-  const topLevelNodeIds = getTopLevelNodeIds(document, nodeIds).filter(
+  const topLevelNodeIds = getTopLevelSelectedNodeIds(document, nodeIds).filter(
     (nodeId) => {
       const node = document.nodes[nodeId];
 

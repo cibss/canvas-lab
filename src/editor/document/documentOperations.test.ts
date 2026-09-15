@@ -11,7 +11,7 @@ import type { EditorDocument } from "./types";
 
 describe("document operations", () => {
   describe("moveNodeBy", () => {
-    it("moves a node by the provided delta", () => {
+    it("moves a node by the provided world delta", () => {
       const result = moveNodeBy(sampleDocument, "rectangle-hero", {
         x: 25,
         y: -10,
@@ -20,6 +20,80 @@ describe("document operations", () => {
       expect(result.nodes["rectangle-hero"].x).toBe(89);
 
       expect(result.nodes["rectangle-hero"].y).toBe(54);
+    });
+
+    it("converts world movement into parent-local movement", () => {
+      const document: EditorDocument = {
+        schemaVersion: 1,
+
+        id: "rotated-parent",
+        name: "Rotated Parent",
+
+        rootNodeIds: ["frame"],
+
+        nodes: {
+          frame: {
+            id: "frame",
+            type: "frame",
+            name: "Frame",
+
+            parentId: null,
+
+            x: 100,
+            y: 100,
+
+            width: 400,
+            height: 400,
+
+            rotation: 90,
+            opacity: 1,
+
+            visible: true,
+            locked: false,
+
+            childIds: ["rectangle"],
+
+            fill: null,
+            clipContent: false,
+          },
+
+          rectangle: {
+            id: "rectangle",
+            type: "rectangle",
+            name: "Rectangle",
+
+            parentId: "frame",
+
+            x: 50,
+            y: 60,
+
+            width: 100,
+            height: 100,
+
+            rotation: 0,
+            opacity: 1,
+
+            visible: true,
+            locked: false,
+
+            fill: {
+              type: "solid",
+              color: "#000000",
+            },
+
+            cornerRadius: 0,
+          },
+        },
+      };
+
+      const result = moveNodeBy(document, "rectangle", {
+        x: 10,
+        y: 0,
+      });
+
+      expect(result.nodes["rectangle"].x).toBeCloseTo(50);
+
+      expect(result.nodes["rectangle"].y).toBeCloseTo(50);
     });
 
     it("does not mutate the original document", () => {

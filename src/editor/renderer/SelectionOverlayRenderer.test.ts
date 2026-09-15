@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { CameraState } from "@/editor/camera/types";
 import { sampleDocument } from "@/editor/document/sampleDocument";
 import type { SelectionState } from "@/editor/selection/selection";
+import { RESIZE_HANDLE_VISUAL_SIZE } from "@/editor/transform/resizeHandles";
+import { ROTATION_HANDLE_VISUAL_SIZE } from "@/editor/transform/rotationHandle";
 
 import { SelectionOverlayRenderer } from "./SelectionOverlayRenderer";
 
@@ -22,6 +24,12 @@ function createMockContext() {
     restore: vi.fn(),
 
     setTransform: vi.fn(),
+
+    beginPath: vi.fn(),
+    moveTo: vi.fn(),
+    lineTo: vi.fn(),
+    closePath: vi.fn(),
+    stroke: vi.fn(),
 
     fillRect: vi.fn(),
     strokeRect: vi.fn(),
@@ -76,7 +84,35 @@ describe("SelectionOverlayRenderer", () => {
 
     renderer.render(sampleDocument, selection, defaultCamera);
 
-    expect(context.fillRect).toHaveBeenCalledTimes(8);
+    const resizeHandleCalls = context.fillRect.mock.calls.filter(
+      ([, , width, height]) =>
+        width === RESIZE_HANDLE_VISUAL_SIZE &&
+        height === RESIZE_HANDLE_VISUAL_SIZE,
+    );
+
+    expect(resizeHandleCalls).toHaveLength(8);
+  });
+
+  it("draws one rotation handle", () => {
+    const context = createMockContext();
+
+    const renderer = new SelectionOverlayRenderer(
+      context as unknown as CanvasRenderingContext2D,
+    );
+
+    const selection: SelectionState = {
+      selectedNodeIds: ["text-title"],
+    };
+
+    renderer.render(sampleDocument, selection, defaultCamera);
+
+    const rotationHandleCalls = context.fillRect.mock.calls.filter(
+      ([, , width, height]) =>
+        width === ROTATION_HANDLE_VISUAL_SIZE &&
+        height === ROTATION_HANDLE_VISUAL_SIZE,
+    );
+
+    expect(rotationHandleCalls).toHaveLength(1);
   });
 
   it("draws combined bounds for multiple selected nodes", () => {
@@ -117,8 +153,8 @@ describe("SelectionOverlayRenderer", () => {
     expect(context.fillRect).toHaveBeenCalledWith(
       expect.any(Number),
       expect.any(Number),
-      4,
-      4,
+      RESIZE_HANDLE_VISUAL_SIZE / 2,
+      RESIZE_HANDLE_VISUAL_SIZE / 2,
     );
   });
 

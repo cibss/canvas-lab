@@ -1,6 +1,7 @@
 import { getNodeWorldBounds } from "@/editor/document/nodeGeometry";
 import type { EditorDocument } from "@/editor/document/types";
 import type { SelectionState } from "@/editor/selection/selection";
+import { getTopLevelSelectedNodeIds } from "@/editor/selection/selectionHierarchy";
 
 import type { TransformBounds } from "./types";
 
@@ -8,7 +9,12 @@ export function getSelectionBounds(
   document: EditorDocument,
   selection: SelectionState,
 ): TransformBounds | null {
-  if (selection.selectedNodeIds.length === 0) {
+  const selectedNodeIds = getTopLevelSelectedNodeIds(
+    document,
+    selection.selectedNodeIds,
+  );
+
+  if (selectedNodeIds.length === 0) {
     return null;
   }
 
@@ -22,7 +28,7 @@ export function getSelectionBounds(
 
   let hasValidNode = false;
 
-  for (const nodeId of selection.selectedNodeIds) {
+  for (const nodeId of selectedNodeIds) {
     const bounds = getNodeWorldBounds(document, nodeId);
 
     if (!bounds) {

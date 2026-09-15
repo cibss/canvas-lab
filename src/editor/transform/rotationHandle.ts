@@ -1,6 +1,8 @@
 import type { Point } from "@/editor/camera/types";
 import type { NodeWorldGeometry } from "@/editor/document/nodeGeometry";
 
+import type { TransformBounds } from "./types";
+
 export const ROTATION_HANDLE_OFFSET = 28;
 
 export const ROTATION_HANDLE_VISUAL_SIZE = 10;
@@ -25,6 +27,7 @@ export function getRotationHandleGeometry(
 
   if (length > Number.EPSILON) {
     directionX /= length;
+
     directionY /= length;
   } else {
     const radians = geometry.rotation * (Math.PI / 180);
@@ -41,6 +44,19 @@ export function getRotationHandleGeometry(
       x: north.x + directionX * distance,
 
       y: north.y + directionY * distance,
+    },
+  };
+}
+
+export function getRotationHandleForBounds(
+  bounds: TransformBounds,
+  zoom: number,
+): RotationHandleGeometry {
+  return {
+    point: {
+      x: bounds.centerX,
+
+      y: bounds.y - ROTATION_HANDLE_OFFSET / zoom,
     },
   };
 }

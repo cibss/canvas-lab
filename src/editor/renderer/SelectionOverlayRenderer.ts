@@ -11,8 +11,10 @@ import {
   RESIZE_HANDLE_VISUAL_SIZE,
 } from "@/editor/transform/resizeHandles";
 import {
+  getRotationHandleForBounds,
   getRotationHandleGeometry,
   ROTATION_HANDLE_VISUAL_SIZE,
+  type RotationHandleGeometry,
 } from "@/editor/transform/rotationHandle";
 import { getSelectionBounds } from "@/editor/transform/selectionBounds";
 
@@ -75,6 +77,11 @@ export class SelectionOverlayRenderer {
 
     this.renderResizeHandles(getResizeHandles(bounds), camera);
 
+    this.renderRotationHandle(
+      getRotationHandleForBounds(bounds, camera.zoom),
+      camera,
+    );
+
     this.context.restore();
   }
 
@@ -123,19 +130,9 @@ export class SelectionOverlayRenderer {
 
     this.renderResizeHandles(getResizeHandlesForNode(geometry), camera);
 
-    const rotationHandle = getRotationHandleGeometry(geometry, camera.zoom);
-
-    const rotationSize = ROTATION_HANDLE_VISUAL_SIZE / camera.zoom;
-
-    const rotationOffset = rotationSize / 2;
-
-    this.context.strokeRect(
-      rotationHandle.point.x - rotationOffset,
-
-      rotationHandle.point.y - rotationOffset,
-
-      rotationSize,
-      rotationSize,
+    this.renderRotationHandle(
+      getRotationHandleGeometry(geometry, camera.zoom),
+      camera,
     );
   }
 
@@ -156,6 +153,33 @@ export class SelectionOverlayRenderer {
 
       this.context.strokeRect(x, y, handleSize, handleSize);
     }
+  }
+
+  private renderRotationHandle(
+    handle: RotationHandleGeometry,
+    camera: CameraState,
+  ) {
+    const size = ROTATION_HANDLE_VISUAL_SIZE / camera.zoom;
+
+    const offset = size / 2;
+
+    this.context.fillRect(
+      handle.point.x - offset,
+
+      handle.point.y - offset,
+
+      size,
+      size,
+    );
+
+    this.context.strokeRect(
+      handle.point.x - offset,
+
+      handle.point.y - offset,
+
+      size,
+      size,
+    );
   }
 
   private applyCameraTransform(camera: CameraState, pixelRatio: number) {

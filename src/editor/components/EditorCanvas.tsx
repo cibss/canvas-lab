@@ -38,11 +38,19 @@ import {
 import {
   addNodesToSelection,
   clearSelection,
+  isNodeSelected,
   selectNodes,
   selectSingleNode,
   toggleNodeSelection,
   type SelectionState,
 } from "@/editor/selection/selection";
+import {
+  createMultiSelectionTransformSession,
+  resizeMultiSelection,
+  rotateMultiSelection,
+  translateMultiSelection,
+  type MultiSelectionTransformSession,
+} from "@/editor/transform/multiSelectionTransform";
 import {
   createNodeResizeSession,
   resizeNodeWithSession,
@@ -50,6 +58,7 @@ import {
 } from "@/editor/transform/nodeResize";
 import {
   findNodeResizeHandleAtPoint,
+  findResizeHandleAtPoint,
   getResizeHandleCursor,
 } from "@/editor/transform/resizeHandles";
 import {
@@ -59,9 +68,12 @@ import {
   rotateNodeTo,
 } from "@/editor/transform/rotation";
 import {
+  getRotationHandleForBounds,
   getRotationHandleGeometry,
   isPointOnRotationHandle,
 } from "@/editor/transform/rotationHandle";
+import { getSelectionBounds } from "@/editor/transform/selectionBounds";
+import type { ResizeHandlePosition } from "@/editor/transform/types";
 
 import styles from "./EditorCanvas.module.css";
 
@@ -87,8 +99,11 @@ type PointerInteraction =
   | "idle"
   | "panning"
   | "dragging-node"
+  | "dragging-selection"
   | "resizing-node"
+  | "resizing-selection"
   | "rotating-node"
+  | "rotating-selection"
   | "marquee";
 
 const ZOOM_SENSITIVITY = 0.0015;
@@ -311,6 +326,13 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
       let resizeSession: NodeResizeSession | null = null;
 
+      let selectionTransformSession: MultiSelectionTransformSession | null =
+        null;
+
+      let selectionDragStartWorld: Point | null = null;
+
+      let selectionResizeHandle: ResizeHandlePosition | null = null;
+
       let rotatingNodeId: NodeId | null = null;
 
       let rotationCenter: Point | null = null;
@@ -439,18 +461,8 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
       const updateTransformHover = (event: PointerEvent) => {
         if (
           isSpacePressed ||
-          selectionRef.current.selectedNodeIds.length !== 1
+          selectionRef.current.selectedNodeIds.length === 0
         ) {
-          clearTransformCursor();
-
-          return;
-        }
-
-        const nodeId = selectionRef.current.selectedNodeIds[0];
-
-        const geometry = getNodeWorldGeometry(documentRef.current, nodeId);
-
-        if (!geometry) {
           clearTransformCursor();
 
           return;
@@ -458,8 +470,71 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
         const worldPoint = getWorldPoint(event);
 
-        const rotationHandle = getRotationHandleGeometry(
-          geometry,
+        if (selectionRef.current.selectedNodeIds.length === 1) {
+          const nodeId = selectionRef.current.selectedNodeIds[0];
+
+          const geometry = getNodeWorldGeometry(documentRef.current, nodeId);
+
+          if (!geometry) {
+            clearTransformCursor();
+
+            return;
+          }
+
+          const rotationHandle = getRotationHandleGeometry(
+            geometry,
+            cameraRef.current.zoom,
+          );
+
+          if (
+            isPointOnRotationHandle(
+              rotationHandle,
+              worldPoint,
+              cameraRef.current.zoom,
+            )
+          ) {
+            viewport.dataset.transformHandle = "rotation";
+
+            viewport.style.cursor = "grab";
+
+            return;
+          }
+
+          const resizeHandle = findNodeResizeHandleAtPoint(
+            geometry,
+            worldPoint,
+            cameraRef.current.zoom,
+          );
+
+          if (!resizeHandle) {
+            clearTransformCursor();
+
+            return;
+          }
+
+          viewport.dataset.transformHandle = resizeHandle;
+
+          viewport.style.cursor = getResizeHandleCursor(
+            resizeHandle,
+            geometry.rotation,
+          );
+
+          return;
+        }
+
+        const bounds = getSelectionBounds(
+          documentRef.current,
+          selectionRef.current,
+        );
+
+        if (!bounds) {
+          clearTransformCursor();
+
+          return;
+        }
+
+        const rotationHandle = getRotationHandleForBounds(
+          bounds,
           cameraRef.current.zoom,
         );
 
@@ -477,8 +552,8 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           return;
         }
 
-        const resizeHandle = findNodeResizeHandleAtPoint(
-          geometry,
+        const resizeHandle = findResizeHandleAtPoint(
+          bounds,
           worldPoint,
           cameraRef.current.zoom,
         );
@@ -491,17 +566,17 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
         viewport.dataset.transformHandle = resizeHandle;
 
-        viewport.style.cursor = getResizeHandleCursor(
-          resizeHandle,
-          geometry.rotation,
-        );
+        viewport.style.cursor = getResizeHandleCursor(resizeHandle, 0);
       };
 
       const endPointerInteraction = (shouldCommitDocument: boolean) => {
         if (
           (pointerInteraction === "dragging-node" ||
+            pointerInteraction === "dragging-selection" ||
             pointerInteraction === "resizing-node" ||
-            pointerInteraction === "rotating-node") &&
+            pointerInteraction === "resizing-selection" ||
+            pointerInteraction === "rotating-node" ||
+            pointerInteraction === "rotating-selection") &&
           shouldCommitDocument
         ) {
           onDocumentChangeRef.current(documentRef.current);
@@ -516,6 +591,12 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         lastDragWorldPosition = null;
 
         resizeSession = null;
+
+        selectionTransformSession = null;
+
+        selectionDragStartWorld = null;
+
+        selectionResizeHandle = null;
 
         rotatingNodeId = null;
 
@@ -566,12 +647,39 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         viewport.dataset.draggingNode = "true";
       };
 
-      const startResize = (
+      const startSelectionDrag = (
+        event: PointerEvent,
+
+        worldPoint: Point,
+      ) => {
+        const session = createMultiSelectionTransformSession(
+          documentRef.current,
+          selectionRef.current,
+        );
+
+        if (!session) {
+          return;
+        }
+
+        pointerInteraction = "dragging-selection";
+
+        activePointerId = event.pointerId;
+
+        selectionTransformSession = session;
+
+        selectionDragStartWorld = worldPoint;
+
+        canvas.setPointerCapture(event.pointerId);
+
+        viewport.dataset.draggingNode = "true";
+      };
+
+      const startNodeResize = (
         event: PointerEvent,
 
         nodeId: NodeId,
 
-        handle: Parameters<typeof createNodeResizeSession>[2],
+        handle: ResizeHandlePosition,
       ) => {
         const session = createNodeResizeSession(
           documentRef.current,
@@ -601,7 +709,38 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         );
       };
 
-      const startRotation = (
+      const startSelectionResize = (
+        event: PointerEvent,
+
+        handle: ResizeHandlePosition,
+      ) => {
+        const session = createMultiSelectionTransformSession(
+          documentRef.current,
+          selectionRef.current,
+        );
+
+        if (!session) {
+          return;
+        }
+
+        pointerInteraction = "resizing-selection";
+
+        activePointerId = event.pointerId;
+
+        selectionTransformSession = session;
+
+        selectionResizeHandle = handle;
+
+        canvas.setPointerCapture(event.pointerId);
+
+        viewport.dataset.resizingNode = "true";
+
+        viewport.dataset.transformHandle = handle;
+
+        viewport.style.cursor = getResizeHandleCursor(handle, 0);
+      };
+
+      const startNodeRotation = (
         event: PointerEvent,
 
         nodeId: NodeId,
@@ -639,6 +778,47 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         viewport.style.cursor = "grabbing";
       };
 
+      const startSelectionRotation = (
+        event: PointerEvent,
+
+        worldPoint: Point,
+      ) => {
+        const session = createMultiSelectionTransformSession(
+          documentRef.current,
+          selectionRef.current,
+        );
+
+        if (!session) {
+          return;
+        }
+
+        const center = {
+          x: session.initialBounds.centerX,
+
+          y: session.initialBounds.centerY,
+        };
+
+        pointerInteraction = "rotating-selection";
+
+        activePointerId = event.pointerId;
+
+        selectionTransformSession = session;
+
+        rotationCenter = center;
+
+        lastRotationPointerAngle = getPointerAngleDegrees(center, worldPoint);
+
+        accumulatedRotationDelta = 0;
+
+        canvas.setPointerCapture(event.pointerId);
+
+        viewport.dataset.rotatingNode = "true";
+
+        viewport.dataset.transformHandle = "rotation";
+
+        viewport.style.cursor = "grabbing";
+      };
+
       const startPan = (event: PointerEvent) => {
         pointerInteraction = "panning";
 
@@ -646,6 +826,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
         lastPointerPosition = {
           x: event.clientX,
+
           y: event.clientY,
         };
 
@@ -732,6 +913,26 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         requestRender();
       };
 
+      const updateSelectionResize = (event: PointerEvent) => {
+        if (!selectionTransformSession || !selectionResizeHandle) {
+          return;
+        }
+
+        documentRef.current = resizeMultiSelection(
+          documentRef.current,
+          selectionTransformSession,
+          selectionResizeHandle,
+          getWorldPoint(event),
+          {
+            preserveAspectRatio: event.shiftKey,
+
+            fromCenter: event.altKey,
+          },
+        );
+
+        requestRender();
+      };
+
       const updateNodeRotation = (event: PointerEvent) => {
         if (!rotatingNodeId || !rotationCenter) {
           return;
@@ -751,14 +952,58 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
         lastRotationPointerAngle = currentAngle;
 
-        const nextRotation = normalizeRotation(
-          initialNodeRotation + accumulatedRotationDelta,
-        );
-
         documentRef.current = rotateNodeTo(
           documentRef.current,
           rotatingNodeId,
-          nextRotation,
+          normalizeRotation(initialNodeRotation + accumulatedRotationDelta),
+        );
+
+        requestRender();
+      };
+
+      const updateSelectionRotation = (event: PointerEvent) => {
+        if (!selectionTransformSession || !rotationCenter) {
+          return;
+        }
+
+        const currentAngle = getPointerAngleDegrees(
+          rotationCenter,
+          getWorldPoint(event),
+        );
+
+        const delta = getShortestAngleDelta(
+          lastRotationPointerAngle,
+          currentAngle,
+        );
+
+        accumulatedRotationDelta += delta;
+
+        lastRotationPointerAngle = currentAngle;
+
+        documentRef.current = rotateMultiSelection(
+          documentRef.current,
+          selectionTransformSession,
+          accumulatedRotationDelta,
+        );
+
+        requestRender();
+      };
+
+      const updateSelectionDrag = (event: PointerEvent) => {
+        if (!selectionTransformSession || !selectionDragStartWorld) {
+          return;
+        }
+
+        const currentWorld = getWorldPoint(event);
+
+        documentRef.current = translateMultiSelection(
+          documentRef.current,
+          selectionTransformSession,
+          {
+            x: currentWorld.x - selectionDragStartWorld.x,
+
+            y: currentWorld.y - selectionDragStartWorld.y,
+          },
         );
 
         requestRender();
@@ -815,12 +1060,12 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
           event.preventDefault();
 
-          const nextDocument = deleteNodes(
-            documentRef.current,
-            selectionRef.current.selectedNodeIds,
+          commitDocument(
+            deleteNodes(
+              documentRef.current,
+              selectionRef.current.selectedNodeIds,
+            ),
           );
-
-          commitDocument(nextDocument);
 
           const nextSelection = clearSelection(selectionRef.current);
 
@@ -901,7 +1146,9 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
         const worldPoint = getWorldPoint(event);
 
-        if (selectionRef.current.selectedNodeIds.length === 1) {
+        const selectionCount = selectionRef.current.selectedNodeIds.length;
+
+        if (selectionCount === 1) {
           const selectedNodeId = selectionRef.current.selectedNodeIds[0];
 
           const geometry = getNodeWorldGeometry(
@@ -922,7 +1169,12 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
                 cameraRef.current.zoom,
               )
             ) {
-              startRotation(event, selectedNodeId, geometry.center, worldPoint);
+              startNodeRotation(
+                event,
+                selectedNodeId,
+                geometry.center,
+                worldPoint,
+              );
 
               return;
             }
@@ -934,7 +1186,45 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
             );
 
             if (resizeHandle) {
-              startResize(event, selectedNodeId, resizeHandle);
+              startNodeResize(event, selectedNodeId, resizeHandle);
+
+              return;
+            }
+          }
+        }
+
+        if (selectionCount > 1) {
+          const bounds = getSelectionBounds(
+            documentRef.current,
+            selectionRef.current,
+          );
+
+          if (bounds) {
+            const rotationHandle = getRotationHandleForBounds(
+              bounds,
+              cameraRef.current.zoom,
+            );
+
+            if (
+              isPointOnRotationHandle(
+                rotationHandle,
+                worldPoint,
+                cameraRef.current.zoom,
+              )
+            ) {
+              startSelectionRotation(event, worldPoint);
+
+              return;
+            }
+
+            const resizeHandle = findResizeHandleAtPoint(
+              bounds,
+              worldPoint,
+              cameraRef.current.zoom,
+            );
+
+            if (resizeHandle) {
+              startSelectionResize(event, resizeHandle);
 
               return;
             }
@@ -954,6 +1244,15 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         }
 
         if (hitNodeId) {
+          if (
+            selectionCount > 1 &&
+            isNodeSelected(selectionRef.current, hitNodeId)
+          ) {
+            startSelectionDrag(event, worldPoint);
+
+            return;
+          }
+
           applyRuntimeSelection(
             selectSingleNode(selectionRef.current, hitNodeId),
           );
@@ -1003,8 +1302,26 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           return;
         }
 
+        if (pointerInteraction === "resizing-selection") {
+          updateSelectionResize(event);
+
+          return;
+        }
+
         if (pointerInteraction === "rotating-node") {
           updateNodeRotation(event);
+
+          return;
+        }
+
+        if (pointerInteraction === "rotating-selection") {
+          updateSelectionRotation(event);
+
+          return;
+        }
+
+        if (pointerInteraction === "dragging-selection") {
+          updateSelectionDrag(event);
 
           return;
         }
@@ -1075,8 +1392,20 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           updateNodeResize(event);
         }
 
+        if (pointerInteraction === "resizing-selection") {
+          updateSelectionResize(event);
+        }
+
         if (pointerInteraction === "rotating-node") {
           updateNodeRotation(event);
+        }
+
+        if (pointerInteraction === "rotating-selection") {
+          updateSelectionRotation(event);
+        }
+
+        if (pointerInteraction === "dragging-selection") {
+          updateSelectionDrag(event);
         }
 
         releasePointerCapture(event.pointerId);

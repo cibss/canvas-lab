@@ -31,8 +31,13 @@ import {
   setEditorSelection,
   undoEditorState,
 } from "@/editor/state/editorState";
+import {
+  DEFAULT_EDITOR_TOOL,
+  type EditorTool,
+} from "@/editor/tools/editorTool";
 
 import { EditorCanvas, type EditorCanvasHandle } from "./EditorCanvas";
+import { EditorToolbar } from "./EditorToolbar";
 
 import styles from "./EditorShell.module.css";
 
@@ -52,11 +57,7 @@ interface LayerTreeProps {
 
   depth?: number;
 
-  onSelectNode: (
-    nodeId: NodeId,
-
-    additive: boolean,
-  ) => void;
+  onSelectNode: (nodeId: NodeId, additive: boolean) => void;
 }
 
 function LayerTree({
@@ -133,6 +134,8 @@ export function EditorShell() {
   );
 
   const [zoomPercentage, setZoomPercentage] = useState(100);
+
+  const [activeTool, setActiveTool] = useState<EditorTool>(DEFAULT_EDITOR_TOOL);
 
   const { document, selection, history } = editorState;
 
@@ -346,7 +349,9 @@ export function EditorShell() {
                 padding: 0,
                 font: "inherit",
                 color: "inherit",
+
                 opacity: canUndoHistory ? 1 : 0.35,
+
                 cursor: canUndoHistory ? "pointer" : "default",
               }}
             >
@@ -370,7 +375,9 @@ export function EditorShell() {
                 padding: 0,
                 font: "inherit",
                 color: "inherit",
+
                 opacity: canRedoHistory ? 1 : 0.35,
+
                 cursor: canRedoHistory ? "pointer" : "default",
               }}
             >
@@ -420,30 +427,7 @@ export function EditorShell() {
         </header>
 
         <div className={styles.editor}>
-          <aside className={styles.toolbar} aria-label="Editor tools">
-            <div
-              className={`${styles.tool} ${styles.activeTool}`}
-              title="Select"
-            >
-              ↖
-            </div>
-
-            <div className={styles.tool} title="Rectangle">
-              □
-            </div>
-
-            <div className={styles.tool} title="Ellipse">
-              ○
-            </div>
-
-            <div className={styles.tool} title="Text">
-              T
-            </div>
-
-            <div className={styles.tool} title="Frame">
-              ▣
-            </div>
-          </aside>
+          <EditorToolbar activeTool={activeTool} onToolChange={setActiveTool} />
 
           <aside className={styles.layersPanel}>
             <div className={styles.panelHeader}>Layers</div>
@@ -466,6 +450,7 @@ export function EditorShell() {
               ref={canvasRef}
               document={document}
               selection={selection}
+              activeTool={activeTool}
               onGestureCommit={handleGestureCommit}
               onSelectionChange={handleSelectionChange}
               onNudgeSelection={handleNudgeSelection}

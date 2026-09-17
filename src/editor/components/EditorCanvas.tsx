@@ -89,12 +89,14 @@ import type {
   ResizeHandlePosition,
   TransformBounds,
 } from "@/editor/transform/types";
+import type { EditorTool } from "@/editor/tools/editorTool";
 
 import styles from "./EditorCanvas.module.css";
 
 interface EditorCanvasProps {
   document: EditorDocument;
   selection: SelectionState;
+  activeTool: EditorTool;
 
   onGestureCommit: (commit: GestureTransactionCommit) => void;
   onSelectionChange: (selection: SelectionState) => void;
@@ -161,6 +163,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
     {
       document,
       selection,
+      activeTool,
       onGestureCommit,
       onSelectionChange,
       onNudgeSelection,
@@ -174,6 +177,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
     const cameraRef = useRef<CameraState>(createCamera());
     const documentRef = useRef<EditorDocument>(document);
     const selectionRef = useRef<SelectionState>(selection);
+    const activeToolRef = useRef<EditorTool>(activeTool);
     const onGestureCommitRef = useRef(onGestureCommit);
     const onSelectionChangeRef = useRef(onSelectionChange);
     const onNudgeSelectionRef = useRef(onNudgeSelection);
@@ -190,6 +194,19 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
       selectionRef.current = selection;
       requestRenderRef.current();
     }, [selection]);
+
+    useEffect(() => {
+      activeToolRef.current = activeTool;
+
+      const viewport = viewportRef.current;
+
+      if (viewport) {
+        delete viewport.dataset.transformHandle;
+        viewport.style.cursor = activeTool === "select" ? "" : "crosshair";
+      }
+
+      requestRenderRef.current();
+    }, [activeTool]);
 
     useEffect(() => {
       onGestureCommitRef.current = onGestureCommit;
@@ -423,7 +440,8 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
       const clearTransformCursor = () => {
         delete viewport.dataset.transformHandle;
-        viewport.style.cursor = "";
+        viewport.style.cursor =
+          activeToolRef.current === "select" ? "" : "crosshair";
       };
 
       const clearSnapping = () => {
@@ -432,6 +450,11 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
       };
 
       const updateTransformHover = (event: PointerEvent) => {
+        if (activeToolRef.current !== "select") {
+          clearTransformCursor();
+          return;
+        }
+
         if (
           isSpacePressed ||
           selectionRef.current.selectedNodeIds.length === 0
@@ -1197,6 +1220,10 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           return;
         }
 
+        if (activeToolRef.current !== "select") {
+          return;
+        }
+
         const worldPoint = getWorldPoint(event);
         const selectionCount = selectionRef.current.selectedNodeIds.length;
 
@@ -1509,7 +1536,11 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
     }, [applyCamera]);
 
     return (
-      <div ref={viewportRef} className={styles.viewport}>
+      <div
+        ref={viewportRef}
+        className={styles.viewport}
+        data-active-tool={activeTool}
+      >
         <canvas
           ref={canvasRef}
           className={styles.canvas}

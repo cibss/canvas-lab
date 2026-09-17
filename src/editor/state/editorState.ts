@@ -1,5 +1,6 @@
 import type { EditorSnapshot } from "@/editor/commands/command";
 import {
+  breakEditorHistoryCoalescing,
   createEditorHistory,
   redoEditorHistory,
   undoEditorHistory,
@@ -13,7 +14,9 @@ import {
 
 export interface EditorState {
   document: EditorDocument;
+
   selection: SelectionState;
+
   history: EditorHistory;
 }
 
@@ -23,34 +26,56 @@ function cloneSelection(selection: SelectionState): SelectionState {
   };
 }
 
+function areSelectionsEqual(
+  left: SelectionState,
+  right: SelectionState,
+): boolean {
+  if (left.selectedNodeIds.length !== right.selectedNodeIds.length) {
+    return false;
+  }
+
+  return left.selectedNodeIds.every(
+    (nodeId, index) => nodeId === right.selectedNodeIds[index],
+  );
+}
+
 export function createEditorState(
   document: EditorDocument,
+
   selection: SelectionState = createSelectionState(),
+
   history: EditorHistory = createEditorHistory(),
 ): EditorState {
   return {
     document,
+
     selection: cloneSelection(selection),
+
     history,
   };
 }
 
 export function setEditorSelection(
   state: EditorState,
+
   selection: SelectionState,
 ): EditorState {
-  if (state.selection === selection) {
+  if (areSelectionsEqual(state.selection, selection)) {
     return state;
   }
 
   return {
     ...state,
+
     selection: cloneSelection(selection),
+
+    history: breakEditorHistoryCoalescing(state.history),
   };
 }
 
 export function replaceEditorDocument(
   state: EditorState,
+
   document: EditorDocument,
 ): EditorState {
   if (state.document === document) {
@@ -59,18 +84,26 @@ export function replaceEditorDocument(
 
   return {
     ...state,
+
     document,
+
+    history: breakEditorHistoryCoalescing(state.history),
   };
 }
 
 export function applyEditorSnapshot(
   state: EditorState,
+
   snapshot: EditorSnapshot,
 ): EditorState {
   return {
     ...state,
+
     document: snapshot.document,
+
     selection: cloneSelection(snapshot.selection),
+
+    history: breakEditorHistoryCoalescing(state.history),
   };
 }
 
@@ -83,7 +116,9 @@ export function undoEditorState(state: EditorState): EditorState {
 
   return {
     document: result.snapshot.document,
+
     selection: cloneSelection(result.snapshot.selection),
+
     history: result.history,
   };
 }
@@ -97,7 +132,9 @@ export function redoEditorState(state: EditorState): EditorState {
 
   return {
     document: result.snapshot.document,
+
     selection: cloneSelection(result.snapshot.selection),
+
     history: result.history,
   };
 }

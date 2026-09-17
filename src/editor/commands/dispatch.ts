@@ -3,16 +3,32 @@ import {
   createEditorSnapshot,
   type EditorCommandKind,
 } from "@/editor/commands/command";
-import { commitEditorCommand } from "@/editor/commands/history";
+import {
+  commitEditorCommand,
+  type CommitEditorCommandOptions,
+} from "@/editor/commands/history";
 import type { EditorDocument } from "@/editor/document/types";
 import type { SelectionState } from "@/editor/selection/selection";
 import type { EditorState } from "@/editor/state/editorState";
 
+export interface DispatchCommandCoalescing {
+  key: string;
+
+  committedAt?: number;
+
+  windowMs?: number;
+}
+
 export interface DispatchEditorCommandInput {
   kind: EditorCommandKind;
+
   label: string;
+
   nextDocument: EditorDocument;
+
   nextSelection?: SelectionState;
+
+  coalesce?: DispatchCommandCoalescing;
 }
 
 function areSelectionsEqual(
@@ -28,6 +44,22 @@ function areSelectionsEqual(
   );
 }
 
+function createCommitOptions(
+  input: DispatchEditorCommandInput,
+): CommitEditorCommandOptions {
+  if (!input.coalesce) {
+    return {};
+  }
+
+  return {
+    coalesceKey: input.coalesce.key,
+
+    committedAt: input.coalesce.committedAt,
+
+    coalesceWindowMs: input.coalesce.windowMs,
+  };
+}
+
 export function dispatchEditorCommand(
   state: EditorState,
   input: DispatchEditorCommandInput,
@@ -36,8 +68,11 @@ export function dispatchEditorCommand(
 
   const command = createEditorCommand({
     kind: input.kind,
+
     label: input.label,
+
     before: createEditorSnapshot(state.document, state.selection),
+
     after: createEditorSnapshot(input.nextDocument, nextSelection),
   });
 
@@ -51,7 +86,9 @@ export function dispatchEditorCommand(
 
     return {
       ...state,
+
       document: input.nextDocument,
+
       selection: {
         selectedNodeIds: [...nextSelection.selectedNodeIds],
       },
@@ -60,7 +97,13 @@ export function dispatchEditorCommand(
 
   return {
     document: command.after.document,
+
     selection: command.after.selection,
-    history: commitEditorCommand(state.history, command),
+
+    history: commitEditorCommand(
+      state.history,
+      command,
+      createCommitOptions(input),
+    ),
   };
 }

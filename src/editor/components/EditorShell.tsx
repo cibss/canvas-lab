@@ -45,13 +45,18 @@ const nodeIcons: Record<EditorNode["type"], string> = {
 
 interface LayerTreeProps {
   document: EditorDocument;
+
   selection: SelectionState;
 
   nodeId: NodeId;
 
   depth?: number;
 
-  onSelectNode: (nodeId: NodeId, additive: boolean) => void;
+  onSelectNode: (
+    nodeId: NodeId,
+
+    additive: boolean,
+  ) => void;
 }
 
 function LayerTree({
@@ -214,15 +219,22 @@ export function EditorShell() {
     );
   }, []);
 
-  const handleLayerSelect = useCallback((nodeId: NodeId, additive: boolean) => {
-    setEditorState((currentState) => {
-      const nextSelection = additive
-        ? toggleNodeSelection(currentState.selection, nodeId)
-        : selectSingleNode(currentState.selection, nodeId);
+  const handleLayerSelect = useCallback(
+    (
+      nodeId: NodeId,
 
-      return setEditorSelection(currentState, nextSelection);
-    });
-  }, []);
+      additive: boolean,
+    ) => {
+      setEditorState((currentState) => {
+        const nextSelection = additive
+          ? toggleNodeSelection(currentState.selection, nodeId)
+          : selectSingleNode(currentState.selection, nodeId);
+
+        return setEditorSelection(currentState, nextSelection);
+      });
+    },
+    [],
+  );
 
   const handleNudgeSelection = useCallback((delta: Point) => {
     setEditorState((currentState) => {
@@ -246,6 +258,10 @@ export function EditorShell() {
         label: "Nudge selection",
 
         nextDocument,
+
+        coalesce: {
+          key: "keyboard-nudge",
+        },
       });
     });
   }, []);
@@ -330,9 +346,7 @@ export function EditorShell() {
                 padding: 0,
                 font: "inherit",
                 color: "inherit",
-
                 opacity: canUndoHistory ? 1 : 0.35,
-
                 cursor: canUndoHistory ? "pointer" : "default",
               }}
             >
@@ -356,9 +370,7 @@ export function EditorShell() {
                 padding: 0,
                 font: "inherit",
                 color: "inherit",
-
                 opacity: canRedoHistory ? 1 : 0.35,
-
                 cursor: canRedoHistory ? "pointer" : "default",
               }}
             >

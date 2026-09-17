@@ -16,18 +16,23 @@ export type GestureCommandKind = Extract<
 
 export interface GestureTransaction {
   kind: GestureCommandKind;
+
   label: string;
+
   before: EditorSnapshot;
 }
 
 export interface GestureTransactionCommit {
   transaction: GestureTransaction;
+
   nextDocument: EditorDocument;
+
   nextSelection: SelectionState;
 }
 
 function areSelectionsEqual(
   left: SelectionState,
+
   right: SelectionState,
 ): boolean {
   if (left.selectedNodeIds.length !== right.selectedNodeIds.length) {
@@ -39,27 +44,51 @@ function areSelectionsEqual(
   );
 }
 
+function isTransactionStillCurrent(
+  state: EditorState,
+
+  transaction: GestureTransaction,
+): boolean {
+  return (
+    state.document === transaction.before.document &&
+    areSelectionsEqual(state.selection, transaction.before.selection)
+  );
+}
+
 export function beginGestureTransaction(
   kind: GestureCommandKind,
+
   label: string,
+
   document: EditorDocument,
+
   selection: SelectionState,
 ): GestureTransaction {
   return {
     kind,
+
     label,
+
     before: createEditorSnapshot(document, selection),
   };
 }
 
 export function commitGestureTransaction(
   state: EditorState,
+
   input: GestureTransactionCommit,
 ): EditorState {
+  if (!isTransactionStillCurrent(state, input.transaction)) {
+    return state;
+  }
+
   const command = createEditorCommand({
     kind: input.transaction.kind,
+
     label: input.transaction.label,
+
     before: input.transaction.before,
+
     after: createEditorSnapshot(input.nextDocument, input.nextSelection),
   });
 
@@ -84,7 +113,9 @@ export function commitGestureTransaction(
 
   return {
     document: command.after.document,
+
     selection: command.after.selection,
+
     history: commitEditorCommand(state.history, command),
   };
 }

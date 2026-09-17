@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 
 import type { Point } from "@/editor/camera/types";
 import { dispatchEditorCommand } from "@/editor/commands/dispatch";
@@ -11,6 +17,11 @@ import {
 import { canRedo, canUndo } from "@/editor/commands/history";
 import { getHistoryShortcut } from "@/editor/commands/historyShortcut";
 import { deleteNodes, moveNodesBy } from "@/editor/document/documentOperations";
+import {
+  setNodeLocked,
+  setNodeVisibility,
+  updateNodeName,
+} from "@/editor/document/nodeMetadata";
 import {
   updateNodeProperty,
   type EditableNodeProperty,
@@ -29,6 +40,7 @@ import {
   toggleNodeSelection,
   type SelectionState,
 } from "@/editor/selection/selection";
+import { removeNodeSubtreeFromSelection } from "@/editor/selection/selectionHierarchy";
 import {
   createEditorState,
   redoEditorState,
@@ -62,6 +74,135 @@ const propertyLabels: Record<EditableNodeProperty, string> = {
   opacity: "opacity",
 };
 
+const layerContainerStyle: CSSProperties = {
+  position: "relative",
+  minWidth: 0,
+};
+
+const layerActionsStyle: CSSProperties = {
+  position: "absolute",
+  top: "50%",
+  right: 6,
+
+  display: "flex",
+  gap: 2,
+
+  transform: "translateY(-50%)",
+
+  zIndex: 2,
+};
+
+const layerActionButtonStyle: CSSProperties = {
+  display: "grid",
+  width: 24,
+  height: 24,
+  padding: 0,
+
+  placeItems: "center",
+
+  border: 0,
+  borderRadius: 4,
+
+  outline: 0,
+
+  color: "#71717a",
+  background: "transparent",
+
+  cursor: "pointer",
+};
+
+const renameInputStyle: CSSProperties = {
+  width: "100%",
+  minWidth: 0,
+  height: 24,
+
+  padding: "0 6px",
+
+  border: "1px solid #2563eb",
+
+  borderRadius: 4,
+
+  outline: 0,
+
+  color: "#18181b",
+  background: "#ffffff",
+
+  font: "inherit",
+};
+
+interface VisibilityIconProps {
+  visible: boolean;
+}
+
+function VisibilityIcon({ visible }: VisibilityIconProps) {
+  if (!visible) {
+    return (
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M3 3l18 18" />
+        <path d="M10.6 10.7a2 2 0 002.7 2.7" />
+        <path d="M9.9 4.2A10.8 10.8 0 0112 4c5.5 0 9 6 9 6a16.6 16.6 0 01-2.3 3.1" />
+        <path d="M6.6 6.6C4.3 8.1 3 10 3 10s3.5 6 9 6a9.9 9.9 0 003.2-.5" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z" />
+
+      <circle cx="12" cy="12" r="2.5" />
+    </svg>
+  );
+}
+
+interface LockIconProps {
+  locked: boolean;
+}
+
+function LockIcon({ locked }: LockIconProps) {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="5" y="10" width="14" height="10" rx="2" />
+
+      {locked ? (
+        <path d="M8 10V7a4 4 0 018 0v3" />
+      ) : (
+        <path d="M16 10V7a4 4 0 00-7.7-1.5" />
+      )}
+    </svg>
+  );
+}
+
 interface LayerTreeProps {
   document: EditorDocument;
 
@@ -71,7 +212,29 @@ interface LayerTreeProps {
 
   depth?: number;
 
-  onSelectNode: (nodeId: NodeId, additive: boolean) => void;
+  onSelectNode: (
+    nodeId: NodeId,
+
+    additive: boolean,
+  ) => void;
+
+  onRenameNode: (
+    nodeId: NodeId,
+
+    name: string,
+  ) => void;
+
+  onSetNodeVisibility: (
+    nodeId: NodeId,
+
+    visible: boolean,
+  ) => void;
+
+  onSetNodeLocked: (
+    nodeId: NodeId,
+
+    locked: boolean,
+  ) => void;
 }
 
 function LayerTree({
@@ -80,7 +243,14 @@ function LayerTree({
   nodeId,
   depth = 0,
   onSelectNode,
+  onRenameNode,
+  onSetNodeVisibility,
+  onSetNodeLocked,
 }: LayerTreeProps) {
+  const [renameDraft, setRenameDraft] = useState<string | null>(null);
+
+  const cancelRenameRef = useRef(false);
+
   const node = document.nodes[nodeId];
 
   if (!node) {
@@ -91,27 +261,175 @@ function LayerTree({
 
   const selected = isNodeSelected(selection, nodeId);
 
+  const startRename = () => {
+    cancelRenameRef.current = false;
+
+    setRenameDraft(node.name);
+  };
+
+  const commitRename = () => {
+    if (renameDraft === null) {
+      return;
+    }
+
+    onRenameNode(node.id, renameDraft);
+
+    setRenameDraft(null);
+  };
+
+  const cancelRename = () => {
+    cancelRenameRef.current = true;
+
+    setRenameDraft(null);
+  };
+
+  const rowStyle: CSSProperties = {
+    paddingLeft: `${12 + depth * 16}px`,
+
+    paddingRight: "66px",
+
+    opacity: node.visible ? 1 : 0.5,
+  };
+
   return (
     <>
-      <button
-        type="button"
-        className={`${styles.layerRow} ${
-          selected ? styles.selectedLayerRow : ""
-        }`}
-        style={{
-          paddingLeft: `${12 + depth * 16}px`,
-        }}
-        onClick={(event) => onSelectNode(nodeId, event.shiftKey)}
-        aria-pressed={selected}
-        disabled={node.locked}
-        title={node.locked ? `${node.name} is locked` : node.name}
-      >
-        <span className={styles.layerIcon} aria-hidden="true">
-          {nodeIcons[node.type]}
-        </span>
+      <div style={layerContainerStyle}>
+        {renameDraft !== null ? (
+          <div
+            className={`${styles.layerRow} ${
+              selected ? styles.selectedLayerRow : ""
+            }`}
+            style={rowStyle}
+          >
+            <span className={styles.layerIcon} aria-hidden="true">
+              {nodeIcons[node.type]}
+            </span>
 
-        <span className={styles.layerName}>{node.name}</span>
-      </button>
+            <input
+              autoFocus
+              type="text"
+              value={renameDraft}
+              aria-label={`Rename ${node.name}`}
+              style={renameInputStyle}
+              onFocus={(event) => {
+                event.currentTarget.select();
+              }}
+              onChange={(event) => {
+                setRenameDraft(event.currentTarget.value);
+              }}
+              onBlur={() => {
+                if (cancelRenameRef.current) {
+                  cancelRenameRef.current = false;
+
+                  return;
+                }
+
+                commitRename();
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+
+                  event.currentTarget.blur();
+
+                  return;
+                }
+
+                if (event.key === "Escape") {
+                  event.preventDefault();
+
+                  cancelRename();
+
+                  event.currentTarget.blur();
+                }
+              }}
+            />
+          </div>
+        ) : (
+          <button
+            type="button"
+            className={`${styles.layerRow} ${
+              selected ? styles.selectedLayerRow : ""
+            }`}
+            style={rowStyle}
+            onClick={(event) => {
+              if (!node.visible || node.locked) {
+                return;
+              }
+
+              onSelectNode(nodeId, event.shiftKey);
+            }}
+            onDoubleClick={(event) => {
+              event.preventDefault();
+
+              startRename();
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "F2") {
+                event.preventDefault();
+
+                startRename();
+              }
+            }}
+            aria-pressed={selected}
+            title={
+              !node.visible
+                ? `${node.name} is hidden`
+                : node.locked
+                  ? `${node.name} is locked`
+                  : node.name
+            }
+          >
+            <span className={styles.layerIcon} aria-hidden="true">
+              {nodeIcons[node.type]}
+            </span>
+
+            <span className={styles.layerName}>{node.name}</span>
+          </button>
+        )}
+
+        <div style={layerActionsStyle}>
+          <button
+            type="button"
+            style={{
+              ...layerActionButtonStyle,
+
+              color: node.visible ? "#52525b" : "#a1a1aa",
+            }}
+            aria-label={
+              node.visible ? `Hide ${node.name}` : `Show ${node.name}`
+            }
+            aria-pressed={node.visible}
+            title={node.visible ? "Hide object" : "Show object"}
+            onClick={() => {
+              onSetNodeVisibility(node.id, !node.visible);
+            }}
+          >
+            <VisibilityIcon visible={node.visible} />
+          </button>
+
+          <button
+            type="button"
+            style={{
+              ...layerActionButtonStyle,
+
+              color: node.locked ? "#2563eb" : "#71717a",
+
+              background: node.locked ? "rgb(37 99 235 / 8%)" : "transparent",
+            }}
+            aria-label={
+              node.locked ? `Unlock ${node.name}` : `Lock ${node.name}`
+            }
+            aria-pressed={node.locked}
+            title={node.locked ? "Unlock object" : "Lock object"}
+            onClick={() => {
+              onSetNodeLocked(node.id, !node.locked);
+            }}
+          >
+            <LockIcon locked={node.locked} />
+          </button>
+        </div>
+      </div>
 
       {childIds.map((childId) => (
         <LayerTree
@@ -121,6 +439,9 @@ function LayerTree({
           nodeId={childId}
           depth={depth + 1}
           onSelectNode={onSelectNode}
+          onRenameNode={onRenameNode}
+          onSetNodeVisibility={onSetNodeVisibility}
+          onSetNodeLocked={onSetNodeLocked}
         />
       ))}
     </>
@@ -238,11 +559,98 @@ export function EditorShell() {
 
   const handleLayerSelect = useCallback((nodeId: NodeId, additive: boolean) => {
     setEditorState((currentState) => {
+      const node = currentState.document.nodes[nodeId];
+
+      if (!node || !node.visible || node.locked) {
+        return currentState;
+      }
+
       const nextSelection = additive
         ? toggleNodeSelection(currentState.selection, nodeId)
         : selectSingleNode(currentState.selection, nodeId);
 
       return setEditorSelection(currentState, nextSelection);
+    });
+  }, []);
+
+  const handleRenameNode = useCallback((nodeId: NodeId, name: string) => {
+    setEditorState((currentState) => {
+      const nextDocument = updateNodeName(currentState.document, nodeId, name);
+
+      if (nextDocument === currentState.document) {
+        return currentState;
+      }
+
+      return dispatchEditorCommand(currentState, {
+        kind: "update",
+
+        label: "Rename object",
+
+        nextDocument,
+      });
+    });
+  }, []);
+
+  const handleSetNodeVisibility = useCallback(
+    (nodeId: NodeId, visible: boolean) => {
+      setEditorState((currentState) => {
+        const nextDocument = setNodeVisibility(
+          currentState.document,
+          nodeId,
+          visible,
+        );
+
+        if (nextDocument === currentState.document) {
+          return currentState;
+        }
+
+        const nextSelection = visible
+          ? currentState.selection
+          : removeNodeSubtreeFromSelection(
+              currentState.document,
+              currentState.selection,
+              nodeId,
+            );
+
+        return dispatchEditorCommand(currentState, {
+          kind: "update",
+
+          label: visible ? "Show object" : "Hide object",
+
+          nextDocument,
+
+          nextSelection,
+        });
+      });
+    },
+    [],
+  );
+
+  const handleSetNodeLocked = useCallback((nodeId: NodeId, locked: boolean) => {
+    setEditorState((currentState) => {
+      const nextDocument = setNodeLocked(currentState.document, nodeId, locked);
+
+      if (nextDocument === currentState.document) {
+        return currentState;
+      }
+
+      const nextSelection = locked
+        ? removeNodeSubtreeFromSelection(
+            currentState.document,
+            currentState.selection,
+            nodeId,
+          )
+        : currentState.selection;
+
+      return dispatchEditorCommand(currentState, {
+        kind: "update",
+
+        label: locked ? "Lock object" : "Unlock object",
+
+        nextDocument,
+
+        nextSelection,
+      });
     });
   }, []);
 
@@ -479,6 +887,9 @@ export function EditorShell() {
                   selection={selection}
                   nodeId={nodeId}
                   onSelectNode={handleLayerSelect}
+                  onRenameNode={handleRenameNode}
+                  onSetNodeVisibility={handleSetNodeVisibility}
+                  onSetNodeLocked={handleSetNodeLocked}
                 />
               ))}
             </div>

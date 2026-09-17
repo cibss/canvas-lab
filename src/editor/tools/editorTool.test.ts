@@ -5,6 +5,7 @@ import {
   EDITOR_TOOL_DEFINITIONS,
   getEditorToolDefinition,
   isCreationTool,
+  isShapeCreationTool,
 } from "./editorTool";
 
 describe("editor tools", () => {
@@ -28,6 +29,18 @@ describe("editor tools", () => {
     expect(isCreationTool("text")).toBe(true);
 
     expect(isCreationTool("frame")).toBe(true);
+  });
+
+  it("distinguishes drawable shape tools from text", () => {
+    expect(isShapeCreationTool("rectangle")).toBe(true);
+
+    expect(isShapeCreationTool("ellipse")).toBe(true);
+
+    expect(isShapeCreationTool("frame")).toBe(true);
+
+    expect(isShapeCreationTool("text")).toBe(false);
+
+    expect(isShapeCreationTool("select")).toBe(false);
   });
 
   it("returns tool metadata", () => {

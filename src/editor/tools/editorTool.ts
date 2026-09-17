@@ -1,5 +1,10 @@
 export type EditorTool = "select" | "rectangle" | "ellipse" | "text" | "frame";
 
+export type ShapeEditorTool = Extract<
+  EditorTool,
+  "rectangle" | "ellipse" | "frame"
+>;
+
 export interface EditorToolDefinition {
   id: EditorTool;
 
@@ -47,6 +52,10 @@ export const EDITOR_TOOL_DEFINITIONS: readonly EditorToolDefinition[] = [
 
 export function isCreationTool(tool: EditorTool): boolean {
   return tool !== "select";
+}
+
+export function isShapeCreationTool(tool: EditorTool): tool is ShapeEditorTool {
+  return tool === "rectangle" || tool === "ellipse" || tool === "frame";
 }
 
 export function getEditorToolDefinition(

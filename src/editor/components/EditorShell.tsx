@@ -57,7 +57,11 @@ interface LayerTreeProps {
 
   depth?: number;
 
-  onSelectNode: (nodeId: NodeId, additive: boolean) => void;
+  onSelectNode: (
+    nodeId: NodeId,
+
+    additive: boolean,
+  ) => void;
 }
 
 function LayerTree({
@@ -452,6 +456,7 @@ export function EditorShell() {
               selection={selection}
               activeTool={activeTool}
               onGestureCommit={handleGestureCommit}
+              onToolChange={setActiveTool}
               onSelectionChange={handleSelectionChange}
               onNudgeSelection={handleNudgeSelection}
               onDeleteSelection={handleDeleteSelection}

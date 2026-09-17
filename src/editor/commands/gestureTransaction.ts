@@ -11,7 +11,7 @@ import type { EditorState } from "@/editor/state/editorState";
 
 export type GestureCommandKind = Extract<
   EditorCommandKind,
-  "move" | "resize" | "rotate"
+  "create" | "move" | "resize" | "rotate"
 >;
 
 export interface GestureTransaction {

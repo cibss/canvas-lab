@@ -2,6 +2,7 @@ import type { EditorDocument } from "@/editor/document/types";
 import type { SelectionState } from "@/editor/selection/selection";
 
 export type EditorCommandKind =
+  | "create"
   | "move"
   | "resize"
   | "rotate"
@@ -36,6 +37,7 @@ export interface CreateEditorCommandInput {
 
 export function createEditorSnapshot(
   document: EditorDocument,
+
   selection: SelectionState,
 ): EditorSnapshot {
   return {

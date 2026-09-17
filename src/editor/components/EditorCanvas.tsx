@@ -24,6 +24,11 @@ import {
   type GestureTransactionCommit,
 } from "@/editor/commands/gestureTransaction";
 import { getDocumentBounds } from "@/editor/document/documentBounds";
+import {
+  createShapeNodeId,
+  getShapeCreationBounds,
+  insertRootShape,
+} from "@/editor/document/shapeCreation";
 import { getNodeWorldGeometry } from "@/editor/document/nodeGeometry";
 import { moveNodesBy } from "@/editor/document/documentOperations";
 import type { EditorDocument, NodeId } from "@/editor/document/types";
@@ -89,7 +94,12 @@ import type {
   ResizeHandlePosition,
   TransformBounds,
 } from "@/editor/transform/types";
-import type { EditorTool } from "@/editor/tools/editorTool";
+import {
+  getEditorToolDefinition,
+  isShapeCreationTool,
+  type EditorTool,
+  type ShapeEditorTool,
+} from "@/editor/tools/editorTool";
 
 import styles from "./EditorCanvas.module.css";
 
@@ -99,6 +109,7 @@ interface EditorCanvasProps {
   activeTool: EditorTool;
 
   onGestureCommit: (commit: GestureTransactionCommit) => void;
+  onToolChange: (tool: EditorTool) => void;
   onSelectionChange: (selection: SelectionState) => void;
   onNudgeSelection: (delta: Point) => void;
   onDeleteSelection: () => void;
@@ -121,10 +132,12 @@ type PointerInteraction =
   | "resizing-selection"
   | "rotating-node"
   | "rotating-selection"
+  | "creating-shape"
   | "marquee";
 
 const ZOOM_SENSITIVITY = 0.0015;
 const MARQUEE_DRAG_THRESHOLD = 3;
+const SHAPE_CREATION_DRAG_THRESHOLD = 3;
 const KEYBOARD_NUDGE = 1;
 const KEYBOARD_LARGE_NUDGE = 10;
 
@@ -165,6 +178,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
       selection,
       activeTool,
       onGestureCommit,
+      onToolChange,
       onSelectionChange,
       onNudgeSelection,
       onDeleteSelection,
@@ -179,6 +193,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
     const selectionRef = useRef<SelectionState>(selection);
     const activeToolRef = useRef<EditorTool>(activeTool);
     const onGestureCommitRef = useRef(onGestureCommit);
+    const onToolChangeRef = useRef(onToolChange);
     const onSelectionChangeRef = useRef(onSelectionChange);
     const onNudgeSelectionRef = useRef(onNudgeSelection);
     const onDeleteSelectionRef = useRef(onDeleteSelection);
@@ -211,6 +226,10 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
     useEffect(() => {
       onGestureCommitRef.current = onGestureCommit;
     }, [onGestureCommit]);
+
+    useEffect(() => {
+      onToolChangeRef.current = onToolChange;
+    }, [onToolChange]);
 
     useEffect(() => {
       onSelectionChangeRef.current = onSelectionChange;
@@ -350,6 +369,13 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
       let snapCandidates: SnapCandidate[] = [];
       let activeGuides: SnapGuide[] = [];
+
+      let shapeCreationStartWorld: Point | null = null;
+      let shapeCreationStartClient: Point | null = null;
+      let shapeCreationBaseDocument: EditorDocument | null = null;
+      let shapeCreationTool: ShapeEditorTool | null = null;
+      let shapeCreationNodeId: NodeId | null = null;
+      let shapeCreationHasDraft = false;
 
       let marquee: MarqueeState | null = null;
       let marqueeBaseSelection: SelectionState = selectionRef.current;
@@ -553,15 +579,16 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
       };
 
       const endPointerInteraction = (shouldCommitGesture: boolean) => {
-        const isTransformInteraction =
+        const isDocumentGesture =
           pointerInteraction === "dragging-node" ||
           pointerInteraction === "dragging-selection" ||
           pointerInteraction === "resizing-node" ||
           pointerInteraction === "resizing-selection" ||
           pointerInteraction === "rotating-node" ||
-          pointerInteraction === "rotating-selection";
+          pointerInteraction === "rotating-selection" ||
+          pointerInteraction === "creating-shape";
 
-        if (isTransformInteraction && gestureTransaction) {
+        if (isDocumentGesture && gestureTransaction) {
           if (shouldCommitGesture) {
             onGestureCommitRef.current({
               transaction: gestureTransaction,
@@ -589,6 +616,12 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         initialNodeRotation = 0;
         lastRotationPointerAngle = 0;
         accumulatedRotationDelta = 0;
+        shapeCreationStartWorld = null;
+        shapeCreationStartClient = null;
+        shapeCreationBaseDocument = null;
+        shapeCreationTool = null;
+        shapeCreationNodeId = null;
+        shapeCreationHasDraft = false;
         marquee = null;
         marqueeStartClientPosition = null;
 
@@ -598,6 +631,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         delete viewport.dataset.draggingNode;
         delete viewport.dataset.resizingNode;
         delete viewport.dataset.rotatingNode;
+        delete viewport.dataset.creatingShape;
         delete viewport.dataset.marqueeSelecting;
 
         clearTransformCursor();
@@ -820,6 +854,88 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         viewport.dataset.rotatingNode = "true";
         viewport.dataset.transformHandle = "rotation";
         viewport.style.cursor = "grabbing";
+      };
+
+      const startShapeCreation = (
+        event: PointerEvent,
+        tool: ShapeEditorTool,
+        worldPoint: Point,
+      ) => {
+        clearSnapping();
+
+        const definition = getEditorToolDefinition(tool);
+
+        gestureTransaction = beginGestureTransaction(
+          "create",
+          `Create ${definition.label}`,
+          documentRef.current,
+          selectionRef.current,
+        );
+
+        selectionRef.current = clearSelection(selectionRef.current);
+
+        pointerInteraction = "creating-shape";
+        activePointerId = event.pointerId;
+        shapeCreationStartWorld = worldPoint;
+        shapeCreationStartClient = {
+          x: event.clientX,
+          y: event.clientY,
+        };
+        shapeCreationBaseDocument = documentRef.current;
+        shapeCreationTool = tool;
+        shapeCreationNodeId = createShapeNodeId(documentRef.current, tool);
+        shapeCreationHasDraft = false;
+
+        canvas.setPointerCapture(event.pointerId);
+        viewport.dataset.creatingShape = "true";
+        viewport.style.cursor = "crosshair";
+        requestRender();
+      };
+
+      const updateShapeCreation = (event: PointerEvent) => {
+        if (
+          !shapeCreationStartWorld ||
+          !shapeCreationStartClient ||
+          !shapeCreationBaseDocument ||
+          !shapeCreationTool ||
+          !shapeCreationNodeId
+        ) {
+          return;
+        }
+
+        const dragDistance = Math.hypot(
+          event.clientX - shapeCreationStartClient.x,
+          event.clientY - shapeCreationStartClient.y,
+        );
+
+        if (dragDistance < SHAPE_CREATION_DRAG_THRESHOLD) {
+          if (shapeCreationHasDraft) {
+            documentRef.current = shapeCreationBaseDocument;
+            shapeCreationHasDraft = false;
+            requestRender();
+          }
+
+          return;
+        }
+
+        const bounds = getShapeCreationBounds(
+          shapeCreationStartWorld,
+          getWorldPoint(event),
+          {
+            constrainSquare: event.shiftKey,
+            fromCenter: event.altKey,
+          },
+        );
+
+        documentRef.current = insertRootShape(
+          shapeCreationBaseDocument,
+          shapeCreationTool,
+          shapeCreationNodeId,
+          bounds,
+        );
+
+        shapeCreationHasDraft = true;
+        requestRender();
       };
 
       const startPan = (event: PointerEvent) => {
@@ -1220,11 +1336,18 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           return;
         }
 
-        if (activeToolRef.current !== "select") {
+        const worldPoint = getWorldPoint(event);
+        const currentTool = activeToolRef.current;
+
+        if (isShapeCreationTool(currentTool)) {
+          startShapeCreation(event, currentTool, worldPoint);
           return;
         }
 
-        const worldPoint = getWorldPoint(event);
+        if (currentTool !== "select") {
+          return;
+        }
+
         const selectionCount = selectionRef.current.selectedNodeIds.length;
 
         if (selectionCount === 1) {
@@ -1362,6 +1485,11 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           return;
         }
 
+        if (pointerInteraction === "creating-shape") {
+          updateShapeCreation(event);
+          return;
+        }
+
         if (pointerInteraction === "dragging-node") {
           updateNodeDrag(event);
           return;
@@ -1399,6 +1527,31 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
       const handlePointerUp = (event: PointerEvent) => {
         if (event.pointerId !== activePointerId) {
+          return;
+        }
+
+        if (pointerInteraction === "creating-shape") {
+          updateShapeCreation(event);
+
+          const createdNodeId =
+            shapeCreationHasDraft && shapeCreationNodeId
+              ? shapeCreationNodeId
+              : null;
+
+          if (createdNodeId) {
+            selectionRef.current = selectSingleNode(
+              selectionRef.current,
+              createdNodeId,
+            );
+          }
+
+          releasePointerCapture(event.pointerId);
+          endPointerInteraction(createdNodeId !== null);
+
+          if (createdNodeId) {
+            onToolChangeRef.current("select");
+          }
+
           return;
         }
 
@@ -1497,7 +1650,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           releasePointerCapture(activePointerId);
         }
 
-        endPointerInteraction(true);
+        endPointerInteraction(pointerInteraction !== "creating-shape");
       };
 
       render();

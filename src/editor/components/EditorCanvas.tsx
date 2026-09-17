@@ -20,7 +20,7 @@ import {
 import type { CameraState, Point } from "@/editor/camera/types";
 import { getDocumentBounds } from "@/editor/document/documentBounds";
 import { getNodeWorldGeometry } from "@/editor/document/nodeGeometry";
-import { deleteNodes, moveNodesBy } from "@/editor/document/documentOperations";
+import { moveNodesBy } from "@/editor/document/documentOperations";
 import type { EditorDocument, NodeId } from "@/editor/document/types";
 import { AlignmentGuideRenderer } from "@/editor/renderer/AlignmentGuideRenderer";
 import { Canvas2DRenderer } from "@/editor/renderer/Canvas2DRenderer";
@@ -89,13 +89,12 @@ import styles from "./EditorCanvas.module.css";
 
 interface EditorCanvasProps {
   document: EditorDocument;
-
   selection: SelectionState;
 
   onDocumentChange: (document: EditorDocument) => void;
-
   onSelectionChange: (selection: SelectionState) => void;
-
+  onNudgeSelection: (delta: Point) => void;
+  onDeleteSelection: () => void;
   onZoomChange?: (zoom: number) => void;
 }
 
@@ -118,11 +117,8 @@ type PointerInteraction =
   | "marquee";
 
 const ZOOM_SENSITIVITY = 0.0015;
-
 const MARQUEE_DRAG_THRESHOLD = 3;
-
 const KEYBOARD_NUDGE = 1;
-
 const KEYBOARD_LARGE_NUDGE = 10;
 
 function shouldIgnoreEditorShortcut(target: EventTarget | null): boolean {
@@ -143,29 +139,13 @@ function shouldIgnoreEditorShortcut(target: EventTarget | null): boolean {
 function getKeyboardMoveDelta(key: string, distance: number): Point | null {
   switch (key) {
     case "ArrowLeft":
-      return {
-        x: -distance,
-        y: 0,
-      };
-
+      return { x: -distance, y: 0 };
     case "ArrowRight":
-      return {
-        x: distance,
-        y: 0,
-      };
-
+      return { x: distance, y: 0 };
     case "ArrowUp":
-      return {
-        x: 0,
-        y: -distance,
-      };
-
+      return { x: 0, y: -distance };
     case "ArrowDown":
-      return {
-        x: 0,
-        y: distance,
-      };
-
+      return { x: 0, y: distance };
     default:
       return null;
   }
@@ -173,36 +153,36 @@ function getKeyboardMoveDelta(key: string, distance: number): Point | null {
 
 export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
   function EditorCanvas(
-    { document, selection, onDocumentChange, onSelectionChange, onZoomChange },
+    {
+      document,
+      selection,
+      onDocumentChange,
+      onSelectionChange,
+      onNudgeSelection,
+      onDeleteSelection,
+      onZoomChange,
+    },
     ref,
   ) {
     const viewportRef = useRef<HTMLDivElement>(null);
-
     const canvasRef = useRef<HTMLCanvasElement>(null);
-
     const cameraRef = useRef<CameraState>(createCamera());
-
     const documentRef = useRef<EditorDocument>(document);
-
     const selectionRef = useRef<SelectionState>(selection);
-
     const onDocumentChangeRef = useRef(onDocumentChange);
-
     const onSelectionChangeRef = useRef(onSelectionChange);
-
+    const onNudgeSelectionRef = useRef(onNudgeSelection);
+    const onDeleteSelectionRef = useRef(onDeleteSelection);
     const onZoomChangeRef = useRef(onZoomChange);
-
     const requestRenderRef = useRef<() => void>(() => undefined);
 
     useEffect(() => {
       documentRef.current = document;
-
       requestRenderRef.current();
     }, [document]);
 
     useEffect(() => {
       selectionRef.current = selection;
-
       requestRenderRef.current();
     }, [selection]);
 
@@ -215,15 +195,19 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
     }, [onSelectionChange]);
 
     useEffect(() => {
+      onNudgeSelectionRef.current = onNudgeSelection;
+    }, [onNudgeSelection]);
+
+    useEffect(() => {
+      onDeleteSelectionRef.current = onDeleteSelection;
+    }, [onDeleteSelection]);
+
+    useEffect(() => {
       onZoomChangeRef.current = onZoomChange;
     }, [onZoomChange]);
 
     const applyCamera = useCallback(
-      (
-        camera: CameraState,
-
-        notifyZoom = true,
-      ) => {
+      (camera: CameraState, notifyZoom = true) => {
         cameraRef.current = camera;
 
         if (notifyZoom) {
@@ -246,7 +230,6 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
       return {
         x: rect.width / 2,
-
         y: rect.height / 2,
       };
     }, []);
@@ -281,7 +264,6 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
         fitContent() {
           const viewport = viewportRef.current;
-
           const bounds = getDocumentBounds(documentRef.current);
 
           if (!viewport || !bounds) {
@@ -293,7 +275,6 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           applyCamera(
             fitCameraToBounds(bounds, {
               width: rect.width,
-
               height: rect.height,
             }),
           );
@@ -304,7 +285,6 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
     useEffect(() => {
       const viewport = viewportRef.current;
-
       const canvas = canvasRef.current;
 
       if (!viewport || !canvas) {
@@ -318,74 +298,47 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
       }
 
       const documentRenderer = new Canvas2DRenderer(context);
-
       const guideRenderer = new AlignmentGuideRenderer(context);
-
       const selectionRenderer = new SelectionOverlayRenderer(context);
-
       const marqueeRenderer = new MarqueeOverlayRenderer(context);
 
       let animationFrameId: number | null = null;
-
       let isSpacePressed = false;
-
       let pointerInteraction: PointerInteraction = "idle";
-
       let activePointerId: number | null = null;
 
       let dragStartWorld: Point | null = null;
-
       let dragInitialBounds: TransformBounds | null = null;
-
       let dragBaseDocument: EditorDocument | null = null;
-
       let dragNodeIds: NodeId[] = [];
 
-      let lastPointerPosition: Point = {
-        x: 0,
-        y: 0,
-      };
+      let lastPointerPosition: Point = { x: 0, y: 0 };
 
       let resizeSession: NodeResizeSession | null = null;
-
       let selectionTransformSession: MultiSelectionTransformSession | null =
         null;
-
       let selectionResizeHandle: ResizeHandlePosition | null = null;
 
       let rotatingNodeId: NodeId | null = null;
-
       let rotationCenter: Point | null = null;
-
       let initialNodeRotation = 0;
-
       let lastRotationPointerAngle = 0;
-
       let accumulatedRotationDelta = 0;
 
       let snapCandidates: SnapCandidate[] = [];
-
       let activeGuides: SnapGuide[] = [];
 
       let marquee: MarqueeState | null = null;
-
       let marqueeBaseSelection: SelectionState = selectionRef.current;
-
       let marqueeAdditive = false;
-
       let marqueeStartClientPosition: Point | null = null;
 
       const render = () => {
         const viewportRect = viewport.getBoundingClientRect();
-
         const viewportWidth = Math.max(1, Math.floor(viewportRect.width));
-
         const viewportHeight = Math.max(1, Math.floor(viewportRect.height));
-
         const pixelRatio = window.devicePixelRatio || 1;
-
         const canvasWidth = Math.round(viewportWidth * pixelRatio);
-
         const canvasHeight = Math.round(viewportHeight * pixelRatio);
 
         if (canvas.width !== canvasWidth) {
@@ -397,7 +350,6 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         }
 
         canvas.style.width = `${viewportWidth}px`;
-
         canvas.style.height = `${viewportHeight}px`;
 
         documentRenderer.render(
@@ -425,7 +377,6 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
         animationFrameId = window.requestAnimationFrame(() => {
           animationFrameId = null;
-
           render();
         });
       };
@@ -437,7 +388,6 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
         return {
           x: event.clientX - viewportRect.left,
-
           y: event.clientY - viewportRect.top,
         };
       };
@@ -458,7 +408,6 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         }
 
         selectionRef.current = nextSelection;
-
         requestRender();
       };
 
@@ -466,21 +415,8 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         onSelectionChangeRef.current(selectionRef.current);
       };
 
-      const commitDocument = (nextDocument: EditorDocument) => {
-        if (nextDocument === documentRef.current) {
-          return;
-        }
-
-        documentRef.current = nextDocument;
-
-        onDocumentChangeRef.current(nextDocument);
-
-        requestRender();
-      };
-
       const clearTransformCursor = () => {
         delete viewport.dataset.transformHandle;
-
         viewport.style.cursor = "";
       };
 
@@ -495,7 +431,6 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           selectionRef.current.selectedNodeIds.length === 0
         ) {
           clearTransformCursor();
-
           return;
         }
 
@@ -503,12 +438,10 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
         if (selectionRef.current.selectedNodeIds.length === 1) {
           const nodeId = selectionRef.current.selectedNodeIds[0];
-
           const geometry = getNodeWorldGeometry(documentRef.current, nodeId);
 
           if (!geometry) {
             clearTransformCursor();
-
             return;
           }
 
@@ -525,9 +458,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
             )
           ) {
             viewport.dataset.transformHandle = "rotation";
-
             viewport.style.cursor = "grab";
-
             return;
           }
 
@@ -539,17 +470,14 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
           if (!resizeHandle) {
             clearTransformCursor();
-
             return;
           }
 
           viewport.dataset.transformHandle = resizeHandle;
-
           viewport.style.cursor = getResizeHandleCursor(
             resizeHandle,
             geometry.rotation,
           );
-
           return;
         }
 
@@ -560,7 +488,6 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
         if (!bounds) {
           clearTransformCursor();
-
           return;
         }
 
@@ -577,9 +504,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           )
         ) {
           viewport.dataset.transformHandle = "rotation";
-
           viewport.style.cursor = "grab";
-
           return;
         }
 
@@ -591,12 +516,10 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
         if (!resizeHandle) {
           clearTransformCursor();
-
           return;
         }
 
         viewport.dataset.transformHandle = resizeHandle;
-
         viewport.style.cursor = getResizeHandleCursor(resizeHandle, 0);
       };
 
@@ -614,59 +537,37 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         }
 
         pointerInteraction = "idle";
-
         activePointerId = null;
-
         dragStartWorld = null;
-
         dragInitialBounds = null;
-
         dragBaseDocument = null;
-
         dragNodeIds = [];
-
         resizeSession = null;
-
         selectionTransformSession = null;
-
         selectionResizeHandle = null;
-
         rotatingNodeId = null;
-
         rotationCenter = null;
-
         initialNodeRotation = 0;
-
         lastRotationPointerAngle = 0;
-
         accumulatedRotationDelta = 0;
-
         marquee = null;
-
         marqueeStartClientPosition = null;
 
         clearSnapping();
 
         delete viewport.dataset.panning;
-
         delete viewport.dataset.draggingNode;
-
         delete viewport.dataset.resizingNode;
-
         delete viewport.dataset.rotatingNode;
-
         delete viewport.dataset.marqueeSelecting;
 
         clearTransformCursor();
-
         requestRender();
       };
 
       const startNodeDrag = (
         event: PointerEvent,
-
         nodeId: NodeId,
-
         worldPoint: Point,
       ) => {
         const initialBounds = getSelectionBounds(documentRef.current, {
@@ -678,29 +579,20 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         }
 
         pointerInteraction = "dragging-node";
-
         activePointerId = event.pointerId;
-
         dragStartWorld = worldPoint;
-
         dragInitialBounds = initialBounds;
-
         dragBaseDocument = documentRef.current;
-
         dragNodeIds = [nodeId];
-
         snapCandidates = createSnapCandidates(documentRef.current, [nodeId]);
-
         activeGuides = [];
 
         canvas.setPointerCapture(event.pointerId);
-
         viewport.dataset.draggingNode = "true";
       };
 
       const startSelectionDrag = (
         event: PointerEvent,
-
         worldPoint: Point,
       ): boolean => {
         const session = createMultiSelectionTransformSession(
@@ -713,24 +605,17 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         }
 
         pointerInteraction = "dragging-selection";
-
         activePointerId = event.pointerId;
-
         selectionTransformSession = session;
-
         dragStartWorld = worldPoint;
-
         dragInitialBounds = session.initialBounds;
-
         snapCandidates = createSnapCandidates(
           documentRef.current,
           selectionRef.current.selectedNodeIds,
         );
-
         activeGuides = [];
 
         canvas.setPointerCapture(event.pointerId);
-
         viewport.dataset.draggingNode = "true";
 
         return true;
@@ -738,9 +623,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
       const startNodeResize = (
         event: PointerEvent,
-
         nodeId: NodeId,
-
         handle: ResizeHandlePosition,
       ) => {
         const session = createNodeResizeSession(
@@ -754,21 +637,14 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         }
 
         pointerInteraction = "resizing-node";
-
         activePointerId = event.pointerId;
-
         resizeSession = session;
-
         snapCandidates = createSnapCandidates(documentRef.current, [nodeId]);
-
         activeGuides = [];
 
         canvas.setPointerCapture(event.pointerId);
-
         viewport.dataset.resizingNode = "true";
-
         viewport.dataset.transformHandle = handle;
-
         viewport.style.cursor = getResizeHandleCursor(
           handle,
           session.worldRotation,
@@ -777,7 +653,6 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
       const startSelectionResize = (
         event: PointerEvent,
-
         handle: ResizeHandlePosition,
       ) => {
         const session = createMultiSelectionTransformSession(
@@ -790,36 +665,25 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         }
 
         pointerInteraction = "resizing-selection";
-
         activePointerId = event.pointerId;
-
         selectionTransformSession = session;
-
         selectionResizeHandle = handle;
-
         snapCandidates = createSnapCandidates(
           documentRef.current,
           selectionRef.current.selectedNodeIds,
         );
-
         activeGuides = [];
 
         canvas.setPointerCapture(event.pointerId);
-
         viewport.dataset.resizingNode = "true";
-
         viewport.dataset.transformHandle = handle;
-
         viewport.style.cursor = getResizeHandleCursor(handle, 0);
       };
 
       const startNodeRotation = (
         event: PointerEvent,
-
         nodeId: NodeId,
-
         center: Point,
-
         worldPoint: Point,
       ) => {
         const node = documentRef.current.nodes[nodeId];
@@ -829,33 +693,22 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         }
 
         clearSnapping();
-
         pointerInteraction = "rotating-node";
-
         activePointerId = event.pointerId;
-
         rotatingNodeId = nodeId;
-
         rotationCenter = center;
-
         initialNodeRotation = node.rotation;
-
         lastRotationPointerAngle = getPointerAngleDegrees(center, worldPoint);
-
         accumulatedRotationDelta = 0;
 
         canvas.setPointerCapture(event.pointerId);
-
         viewport.dataset.rotatingNode = "true";
-
         viewport.dataset.transformHandle = "rotation";
-
         viewport.style.cursor = "grabbing";
       };
 
       const startSelectionRotation = (
         event: PointerEvent,
-
         worldPoint: Point,
       ) => {
         const session = createMultiSelectionTransformSession(
@@ -871,80 +724,52 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
         const center = {
           x: session.initialBounds.centerX,
-
           y: session.initialBounds.centerY,
         };
 
         pointerInteraction = "rotating-selection";
-
         activePointerId = event.pointerId;
-
         selectionTransformSession = session;
-
         rotationCenter = center;
-
         lastRotationPointerAngle = getPointerAngleDegrees(center, worldPoint);
-
         accumulatedRotationDelta = 0;
 
         canvas.setPointerCapture(event.pointerId);
-
         viewport.dataset.rotatingNode = "true";
-
         viewport.dataset.transformHandle = "rotation";
-
         viewport.style.cursor = "grabbing";
       };
 
       const startPan = (event: PointerEvent) => {
         clearSnapping();
-
         pointerInteraction = "panning";
-
         activePointerId = event.pointerId;
-
         lastPointerPosition = {
           x: event.clientX,
-
           y: event.clientY,
         };
 
         canvas.setPointerCapture(event.pointerId);
-
         viewport.dataset.panning = "true";
       };
 
-      const startMarquee = (
-        event: PointerEvent,
-
-        worldPoint: Point,
-      ) => {
+      const startMarquee = (event: PointerEvent, worldPoint: Point) => {
         clearSnapping();
-
         pointerInteraction = "marquee";
-
         activePointerId = event.pointerId;
-
         marquee = {
           start: worldPoint,
-
           current: worldPoint,
         };
-
         marqueeBaseSelection = selectionRef.current;
-
         marqueeAdditive = event.shiftKey;
-
         marqueeStartClientPosition = {
           x: event.clientX,
-
           y: event.clientY,
         };
 
         canvas.setPointerCapture(event.pointerId);
-
         viewport.dataset.marqueeSelecting = "true";
-
         requestRender();
       };
 
@@ -955,12 +780,10 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
         marquee = {
           ...marquee,
-
           current: getWorldPoint(event),
         };
 
         const marqueeBounds = getMarqueeBounds(marquee);
-
         const candidateNodeIds = findNodesWithinMarquee(
           documentRef.current,
           marqueeBounds,
@@ -971,7 +794,6 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           : selectNodes(selectionRef.current, candidateNodeIds);
 
         applyRuntimeSelection(nextSelection);
-
         requestRender();
       };
 
@@ -986,10 +808,8 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         }
 
         const currentWorld = getWorldPoint(event);
-
         const desiredDelta = {
           x: currentWorld.x - dragStartWorld.x,
-
           y: currentWorld.y - dragStartWorld.y,
         };
 
@@ -1001,7 +821,6 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         );
 
         activeGuides = snapped.guides;
-
         documentRef.current = moveNodesBy(
           dragBaseDocument,
           dragNodeIds,
@@ -1021,10 +840,8 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         }
 
         const currentWorld = getWorldPoint(event);
-
         const desiredDelta = {
           x: currentWorld.x - dragStartWorld.x,
-
           y: currentWorld.y - dragStartWorld.y,
         };
 
@@ -1036,7 +853,6 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         );
 
         activeGuides = snapped.guides;
-
         documentRef.current = translateMultiSelection(
           documentRef.current,
           selectionTransformSession,
@@ -1052,7 +868,6 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         }
 
         let pointerWorld = getWorldPoint(event);
-
         let matches: ReturnType<typeof snapResizePoint>["matches"] = [];
 
         const canSnap =
@@ -1068,7 +883,6 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           );
 
           pointerWorld = snapped.point;
-
           matches = snapped.matches;
         }
 
@@ -1078,7 +892,6 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           pointerWorld,
           {
             preserveAspectRatio: event.shiftKey,
-
             fromCenter: event.altKey,
           },
         );
@@ -1104,7 +917,6 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         }
 
         let pointerWorld = getWorldPoint(event);
-
         let matches: ReturnType<typeof snapResizePoint>["matches"] = [];
 
         const canSnap =
@@ -1119,7 +931,6 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           );
 
           pointerWorld = snapped.point;
-
           matches = snapped.matches;
         }
 
@@ -1130,7 +941,6 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           pointerWorld,
           {
             preserveAspectRatio: event.shiftKey,
-
             fromCenter: event.altKey,
           },
         );
@@ -1169,7 +979,6 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         );
 
         accumulatedRotationDelta += delta;
-
         lastRotationPointerAngle = currentAngle;
 
         const rawRotation = normalizeRotation(
@@ -1207,7 +1016,6 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         );
 
         accumulatedRotationDelta += delta;
-
         lastRotationPointerAngle = currentAngle;
 
         const rotationDelta = event.shiftKey
@@ -1230,9 +1038,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
         if (event.code === "Space") {
           event.preventDefault();
-
           isSpacePressed = true;
-
           clearTransformCursor();
           clearSnapping();
 
@@ -1255,11 +1061,8 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           }
 
           event.preventDefault();
-
           applyRuntimeSelection(nextSelection);
-
           commitSelection();
-
           return;
         }
 
@@ -1274,20 +1077,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           }
 
           event.preventDefault();
-
-          commitDocument(
-            deleteNodes(
-              documentRef.current,
-              selectionRef.current.selectedNodeIds,
-            ),
-          );
-
-          const nextSelection = clearSelection(selectionRef.current);
-
-          applyRuntimeSelection(nextSelection);
-
-          commitSelection();
-
+          onDeleteSelectionRef.current();
           return;
         }
 
@@ -1308,14 +1098,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         }
 
         event.preventDefault();
-
-        commitDocument(
-          moveNodesBy(
-            documentRef.current,
-            selectionRef.current.selectedNodeIds,
-            delta,
-          ),
-        );
+        onNudgeSelectionRef.current(delta);
       };
 
       const handleKeyUp = (event: KeyboardEvent) => {
@@ -1328,9 +1111,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         }
 
         event.preventDefault();
-
         isSpacePressed = false;
-
         delete viewport.dataset.panReady;
 
         if (pointerInteraction === "panning") {
@@ -1348,24 +1129,18 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         }
 
         event.preventDefault();
-
-        canvas.focus({
-          preventScroll: true,
-        });
+        canvas.focus({ preventScroll: true });
 
         if (isSpacePressed) {
           startPan(event);
-
           return;
         }
 
         const worldPoint = getWorldPoint(event);
-
         const selectionCount = selectionRef.current.selectedNodeIds.length;
 
         if (selectionCount === 1) {
           const selectedNodeId = selectionRef.current.selectedNodeIds[0];
-
           const geometry = getNodeWorldGeometry(
             documentRef.current,
             selectedNodeId,
@@ -1390,7 +1165,6 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
                 geometry.center,
                 worldPoint,
               );
-
               return;
             }
 
@@ -1402,7 +1176,6 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
             if (resizeHandle) {
               startNodeResize(event, selectedNodeId, resizeHandle);
-
               return;
             }
           }
@@ -1428,7 +1201,6 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
               )
             ) {
               startSelectionRotation(event, worldPoint);
-
               return;
             }
 
@@ -1440,7 +1212,6 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
             if (resizeHandle) {
               startSelectionResize(event, resizeHandle);
-
               return;
             }
           }
@@ -1452,9 +1223,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           applyRuntimeSelection(
             toggleNodeSelection(selectionRef.current, hitNodeId),
           );
-
           commitSelection();
-
           return;
         }
 
@@ -1473,11 +1242,8 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           applyRuntimeSelection(
             selectSingleNode(selectionRef.current, hitNodeId),
           );
-
           commitSelection();
-
           startNodeDrag(event, hitNodeId, worldPoint);
-
           return;
         }
 
@@ -1487,7 +1253,6 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
       const handlePointerMove = (event: PointerEvent) => {
         if (pointerInteraction === "idle") {
           updateTransformHover(event);
-
           return;
         }
 
@@ -1497,55 +1262,45 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
         if (pointerInteraction === "panning") {
           const deltaX = event.clientX - lastPointerPosition.x;
-
           const deltaY = event.clientY - lastPointerPosition.y;
 
           lastPointerPosition = {
             x: event.clientX,
-
             y: event.clientY,
           };
 
           cameraRef.current = panCamera(cameraRef.current, deltaX, deltaY);
-
           requestRender();
-
           return;
         }
 
         if (pointerInteraction === "dragging-node") {
           updateNodeDrag(event);
-
           return;
         }
 
         if (pointerInteraction === "dragging-selection") {
           updateSelectionDrag(event);
-
           return;
         }
 
         if (pointerInteraction === "resizing-node") {
           updateNodeResize(event);
-
           return;
         }
 
         if (pointerInteraction === "resizing-selection") {
           updateSelectionResize(event);
-
           return;
         }
 
         if (pointerInteraction === "rotating-node") {
           updateNodeRotation(event);
-
           return;
         }
 
         if (pointerInteraction === "rotating-selection") {
           updateSelectionRotation(event);
-
           return;
         }
 
@@ -1563,13 +1318,8 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           updateMarquee(event);
 
           const start = marqueeStartClientPosition;
-
           const dragDistance = start
-            ? Math.hypot(
-                event.clientX - start.x,
-
-                event.clientY - start.y,
-              )
+            ? Math.hypot(event.clientX - start.x, event.clientY - start.y)
             : 0;
 
           if (dragDistance < MARQUEE_DRAG_THRESHOLD) {
@@ -1608,7 +1358,6 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         }
 
         releasePointerCapture(event.pointerId);
-
         endPointerInteraction(true);
       };
 
@@ -1622,7 +1371,6 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         }
 
         releasePointerCapture(event.pointerId);
-
         endPointerInteraction(true);
       };
 
@@ -1630,15 +1378,12 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         event.preventDefault();
 
         const viewportRect = viewport.getBoundingClientRect();
-
         const pointerPosition = {
           x: event.clientX - viewportRect.left,
-
           y: event.clientY - viewportRect.top,
         };
 
         const zoomFactor = Math.exp(-event.deltaY * ZOOM_SENSITIVITY);
-
         const nextZoom = cameraRef.current.zoom * zoomFactor;
 
         applyCamera(
@@ -1654,7 +1399,6 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
       const handleWindowBlur = () => {
         isSpacePressed = false;
-
         delete viewport.dataset.panReady;
 
         if (pointerInteraction === "marquee") {
@@ -1671,50 +1415,30 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
       render();
 
       const resizeObserver = new ResizeObserver(requestRender);
-
       resizeObserver.observe(viewport);
 
       window.addEventListener("keydown", handleKeyDown);
-
       window.addEventListener("keyup", handleKeyUp);
-
       window.addEventListener("blur", handleWindowBlur);
-
       canvas.addEventListener("pointerdown", handlePointerDown);
-
       canvas.addEventListener("pointermove", handlePointerMove);
-
       canvas.addEventListener("pointerup", handlePointerUp);
-
       canvas.addEventListener("pointercancel", handlePointerCancel);
-
       canvas.addEventListener("pointerleave", handlePointerLeave);
-
-      canvas.addEventListener("wheel", handleWheel, {
-        passive: false,
-      });
+      canvas.addEventListener("wheel", handleWheel, { passive: false });
 
       return () => {
         resizeObserver.disconnect();
-
         requestRenderRef.current = () => undefined;
 
         window.removeEventListener("keydown", handleKeyDown);
-
         window.removeEventListener("keyup", handleKeyUp);
-
         window.removeEventListener("blur", handleWindowBlur);
-
         canvas.removeEventListener("pointerdown", handlePointerDown);
-
         canvas.removeEventListener("pointermove", handlePointerMove);
-
         canvas.removeEventListener("pointerup", handlePointerUp);
-
         canvas.removeEventListener("pointercancel", handlePointerCancel);
-
         canvas.removeEventListener("pointerleave", handlePointerLeave);
-
         canvas.removeEventListener("wheel", handleWheel);
 
         if (animationFrameId !== null) {

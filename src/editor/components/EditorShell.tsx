@@ -2,6 +2,9 @@
 
 import { useCallback, useRef, useState } from "react";
 
+import type { Point } from "@/editor/camera/types";
+import { dispatchEditorCommand } from "@/editor/commands/dispatch";
+import { deleteNodes, moveNodesBy } from "@/editor/document/documentOperations";
 import { sampleDocument } from "@/editor/document/sampleDocument";
 import type {
   EditorDocument,
@@ -9,12 +12,18 @@ import type {
   NodeId,
 } from "@/editor/document/types";
 import {
+  clearSelection,
   createSelectionState,
   isNodeSelected,
   selectSingleNode,
   toggleNodeSelection,
   type SelectionState,
 } from "@/editor/selection/selection";
+import {
+  createEditorState,
+  replaceEditorDocument,
+  setEditorSelection,
+} from "@/editor/state/editorState";
 
 import { EditorCanvas, type EditorCanvasHandle } from "./EditorCanvas";
 
@@ -92,15 +101,13 @@ function LayerTree({
 export function EditorShell() {
   const canvasRef = useRef<EditorCanvasHandle>(null);
 
-  const [document, setDocument] = useState<EditorDocument>(
-    () => sampleDocument,
+  const [editorState, setEditorState] = useState(() =>
+    createEditorState(sampleDocument, createSelectionState()),
   );
 
   const [zoomPercentage, setZoomPercentage] = useState(100);
 
-  const [selection, setSelection] = useState<SelectionState>(() =>
-    createSelectionState(),
-  );
+  const { document, selection } = editorState;
 
   const nodeCount = Object.keys(document.nodes).length;
 
@@ -111,7 +118,9 @@ export function EditorShell() {
   const selectedNode = selectedNodeId ? document.nodes[selectedNodeId] : null;
 
   const handleDocumentChange = useCallback((nextDocument: EditorDocument) => {
-    setDocument(nextDocument);
+    setEditorState((currentState) =>
+      replaceEditorDocument(currentState, nextDocument),
+    );
   }, []);
 
   const handleZoomChange = useCallback((zoom: number) => {
@@ -119,15 +128,67 @@ export function EditorShell() {
   }, []);
 
   const handleSelectionChange = useCallback((nextSelection: SelectionState) => {
-    setSelection(nextSelection);
+    setEditorState((currentState) =>
+      setEditorSelection(currentState, nextSelection),
+    );
   }, []);
 
   const handleLayerSelect = useCallback((nodeId: NodeId, additive: boolean) => {
-    setSelection((currentSelection) =>
-      additive
-        ? toggleNodeSelection(currentSelection, nodeId)
-        : selectSingleNode(currentSelection, nodeId),
-    );
+    setEditorState((currentState) => {
+      const nextSelection = additive
+        ? toggleNodeSelection(currentState.selection, nodeId)
+        : selectSingleNode(currentState.selection, nodeId);
+
+      return setEditorSelection(currentState, nextSelection);
+    });
+  }, []);
+
+  const handleNudgeSelection = useCallback((delta: Point) => {
+    setEditorState((currentState) => {
+      if (currentState.selection.selectedNodeIds.length === 0) {
+        return currentState;
+      }
+
+      const nextDocument = moveNodesBy(
+        currentState.document,
+        currentState.selection.selectedNodeIds,
+        delta,
+      );
+
+      if (nextDocument === currentState.document) {
+        return currentState;
+      }
+
+      return dispatchEditorCommand(currentState, {
+        kind: "move",
+        label: "Nudge selection",
+        nextDocument,
+      });
+    });
+  }, []);
+
+  const handleDeleteSelection = useCallback(() => {
+    setEditorState((currentState) => {
+      if (currentState.selection.selectedNodeIds.length === 0) {
+        return currentState;
+      }
+
+      const nextDocument = deleteNodes(
+        currentState.document,
+        currentState.selection.selectedNodeIds,
+      );
+
+      if (nextDocument === currentState.document) {
+        return currentState;
+      }
+
+      return dispatchEditorCommand(currentState, {
+        kind: "delete",
+        label: "Delete selection",
+        nextDocument,
+        nextSelection: clearSelection(currentState.selection),
+      });
+    });
   }, []);
 
   return (
@@ -259,6 +320,8 @@ export function EditorShell() {
               selection={selection}
               onDocumentChange={handleDocumentChange}
               onSelectionChange={handleSelectionChange}
+              onNudgeSelection={handleNudgeSelection}
+              onDeleteSelection={handleDeleteSelection}
               onZoomChange={handleZoomChange}
             />
           </section>

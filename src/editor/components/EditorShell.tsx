@@ -492,6 +492,9 @@ export function EditorShell() {
 
   const selectedNode = selectedNodeId ? document.nodes[selectedNodeId] : null;
 
+  const toolHint =
+    activeTool === "select" ? "Space · Pan" : "Esc · Select · Space · Pan";
+
   const handleUndo = useCallback(() => {
     setEditorState((currentState) => undoEditorState(currentState));
   }, []);
@@ -865,13 +868,9 @@ export function EditorShell() {
               }
               style={{
                 border: 0,
-
                 background: "transparent",
-
                 padding: 0,
-
                 font: "inherit",
-
                 color: "inherit",
 
                 opacity: canUndoHistory ? 1 : 0.35,
@@ -895,13 +894,9 @@ export function EditorShell() {
               }
               style={{
                 border: 0,
-
                 background: "transparent",
-
                 padding: 0,
-
                 font: "inherit",
-
                 color: "inherit",
 
                 opacity: canRedoHistory ? 1 : 0.35,
@@ -1053,12 +1048,7 @@ export function EditorShell() {
 
           <span>
             Tool: {activeToolDefinition.label} ({activeToolDefinition.shortcut})
-          </span>
-
-          <span>
-            {activeTool === "select"
-              ? "Space · Pan"
-              : "Esc · Select · Space · Pan"}
+            · {toolHint}
           </span>
 
           <span>{nodeCount} objects</span>

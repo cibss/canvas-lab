@@ -18,6 +18,11 @@ import {
   ZOOM_BUTTON_FACTOR,
 } from "@/editor/camera/camera";
 import type { CameraState, Point } from "@/editor/camera/types";
+import {
+  beginGestureTransaction,
+  type GestureTransaction,
+  type GestureTransactionCommit,
+} from "@/editor/commands/gestureTransaction";
 import { getDocumentBounds } from "@/editor/document/documentBounds";
 import { getNodeWorldGeometry } from "@/editor/document/nodeGeometry";
 import { moveNodesBy } from "@/editor/document/documentOperations";
@@ -91,7 +96,7 @@ interface EditorCanvasProps {
   document: EditorDocument;
   selection: SelectionState;
 
-  onDocumentChange: (document: EditorDocument) => void;
+  onGestureCommit: (commit: GestureTransactionCommit) => void;
   onSelectionChange: (selection: SelectionState) => void;
   onNudgeSelection: (delta: Point) => void;
   onDeleteSelection: () => void;
@@ -156,7 +161,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
     {
       document,
       selection,
-      onDocumentChange,
+      onGestureCommit,
       onSelectionChange,
       onNudgeSelection,
       onDeleteSelection,
@@ -169,7 +174,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
     const cameraRef = useRef<CameraState>(createCamera());
     const documentRef = useRef<EditorDocument>(document);
     const selectionRef = useRef<SelectionState>(selection);
-    const onDocumentChangeRef = useRef(onDocumentChange);
+    const onGestureCommitRef = useRef(onGestureCommit);
     const onSelectionChangeRef = useRef(onSelectionChange);
     const onNudgeSelectionRef = useRef(onNudgeSelection);
     const onDeleteSelectionRef = useRef(onDeleteSelection);
@@ -187,8 +192,8 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
     }, [selection]);
 
     useEffect(() => {
-      onDocumentChangeRef.current = onDocumentChange;
-    }, [onDocumentChange]);
+      onGestureCommitRef.current = onGestureCommit;
+    }, [onGestureCommit]);
 
     useEffect(() => {
       onSelectionChangeRef.current = onSelectionChange;
@@ -306,6 +311,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
       let isSpacePressed = false;
       let pointerInteraction: PointerInteraction = "idle";
       let activePointerId: number | null = null;
+      let gestureTransaction: GestureTransaction | null = null;
 
       let dragStartWorld: Point | null = null;
       let dragInitialBounds: TransformBounds | null = null;
@@ -523,21 +529,31 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         viewport.style.cursor = getResizeHandleCursor(resizeHandle, 0);
       };
 
-      const endPointerInteraction = (shouldCommitDocument: boolean) => {
-        if (
-          (pointerInteraction === "dragging-node" ||
-            pointerInteraction === "dragging-selection" ||
-            pointerInteraction === "resizing-node" ||
-            pointerInteraction === "resizing-selection" ||
-            pointerInteraction === "rotating-node" ||
-            pointerInteraction === "rotating-selection") &&
-          shouldCommitDocument
-        ) {
-          onDocumentChangeRef.current(documentRef.current);
+      const endPointerInteraction = (shouldCommitGesture: boolean) => {
+        const isTransformInteraction =
+          pointerInteraction === "dragging-node" ||
+          pointerInteraction === "dragging-selection" ||
+          pointerInteraction === "resizing-node" ||
+          pointerInteraction === "resizing-selection" ||
+          pointerInteraction === "rotating-node" ||
+          pointerInteraction === "rotating-selection";
+
+        if (isTransformInteraction && gestureTransaction) {
+          if (shouldCommitGesture) {
+            onGestureCommitRef.current({
+              transaction: gestureTransaction,
+              nextDocument: documentRef.current,
+              nextSelection: selectionRef.current,
+            });
+          } else {
+            documentRef.current = gestureTransaction.before.document;
+            selectionRef.current = gestureTransaction.before.selection;
+          }
         }
 
         pointerInteraction = "idle";
         activePointerId = null;
+        gestureTransaction = null;
         dragStartWorld = null;
         dragInitialBounds = null;
         dragBaseDocument = null;
@@ -578,6 +594,13 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           return;
         }
 
+        gestureTransaction = beginGestureTransaction(
+          "move",
+          "Move selection",
+          documentRef.current,
+          selectionRef.current,
+        );
+
         pointerInteraction = "dragging-node";
         activePointerId = event.pointerId;
         dragStartWorld = worldPoint;
@@ -603,6 +626,13 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         if (!session) {
           return false;
         }
+
+        gestureTransaction = beginGestureTransaction(
+          "move",
+          "Move selection",
+          documentRef.current,
+          selectionRef.current,
+        );
 
         pointerInteraction = "dragging-selection";
         activePointerId = event.pointerId;
@@ -636,6 +666,13 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           return;
         }
 
+        gestureTransaction = beginGestureTransaction(
+          "resize",
+          "Resize selection",
+          documentRef.current,
+          selectionRef.current,
+        );
+
         pointerInteraction = "resizing-node";
         activePointerId = event.pointerId;
         resizeSession = session;
@@ -663,6 +700,13 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         if (!session) {
           return;
         }
+
+        gestureTransaction = beginGestureTransaction(
+          "resize",
+          "Resize selection",
+          documentRef.current,
+          selectionRef.current,
+        );
 
         pointerInteraction = "resizing-selection";
         activePointerId = event.pointerId;
@@ -693,6 +737,14 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         }
 
         clearSnapping();
+
+        gestureTransaction = beginGestureTransaction(
+          "rotate",
+          "Rotate selection",
+          documentRef.current,
+          selectionRef.current,
+        );
+
         pointerInteraction = "rotating-node";
         activePointerId = event.pointerId;
         rotatingNodeId = nodeId;
@@ -722,6 +774,13 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
         clearSnapping();
 
+        gestureTransaction = beginGestureTransaction(
+          "rotate",
+          "Rotate selection",
+          documentRef.current,
+          selectionRef.current,
+        );
+
         const center = {
           x: session.initialBounds.centerX,
           y: session.initialBounds.centerY,
@@ -742,6 +801,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
       const startPan = (event: PointerEvent) => {
         clearSnapping();
+        gestureTransaction = null;
         pointerInteraction = "panning";
         activePointerId = event.pointerId;
         lastPointerPosition = {
@@ -755,6 +815,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
       const startMarquee = (event: PointerEvent, worldPoint: Point) => {
         clearSnapping();
+        gestureTransaction = null;
         pointerInteraction = "marquee";
         activePointerId = event.pointerId;
         marquee = {
@@ -1371,7 +1432,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         }
 
         releasePointerCapture(event.pointerId);
-        endPointerInteraction(true);
+        endPointerInteraction(false);
       };
 
       const handleWheel = (event: WheelEvent) => {

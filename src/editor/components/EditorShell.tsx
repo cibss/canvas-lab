@@ -4,6 +4,10 @@ import { useCallback, useRef, useState } from "react";
 
 import type { Point } from "@/editor/camera/types";
 import { dispatchEditorCommand } from "@/editor/commands/dispatch";
+import {
+  commitGestureTransaction,
+  type GestureTransactionCommit,
+} from "@/editor/commands/gestureTransaction";
 import { deleteNodes, moveNodesBy } from "@/editor/document/documentOperations";
 import { sampleDocument } from "@/editor/document/sampleDocument";
 import type {
@@ -21,7 +25,6 @@ import {
 } from "@/editor/selection/selection";
 import {
   createEditorState,
-  replaceEditorDocument,
   setEditorSelection,
 } from "@/editor/state/editorState";
 
@@ -38,8 +41,11 @@ const nodeIcons: Record<EditorNode["type"], string> = {
 
 interface LayerTreeProps {
   document: EditorDocument;
+
   selection: SelectionState;
+
   nodeId: NodeId;
+
   depth?: number;
 
   onSelectNode: (nodeId: NodeId, additive: boolean) => void;
@@ -117,11 +123,14 @@ export function EditorShell() {
 
   const selectedNode = selectedNodeId ? document.nodes[selectedNodeId] : null;
 
-  const handleDocumentChange = useCallback((nextDocument: EditorDocument) => {
-    setEditorState((currentState) =>
-      replaceEditorDocument(currentState, nextDocument),
-    );
-  }, []);
+  const handleGestureCommit = useCallback(
+    (commit: GestureTransactionCommit) => {
+      setEditorState((currentState) =>
+        commitGestureTransaction(currentState, commit),
+      );
+    },
+    [],
+  );
 
   const handleZoomChange = useCallback((zoom: number) => {
     setZoomPercentage(Math.round(zoom * 100));
@@ -133,15 +142,22 @@ export function EditorShell() {
     );
   }, []);
 
-  const handleLayerSelect = useCallback((nodeId: NodeId, additive: boolean) => {
-    setEditorState((currentState) => {
-      const nextSelection = additive
-        ? toggleNodeSelection(currentState.selection, nodeId)
-        : selectSingleNode(currentState.selection, nodeId);
+  const handleLayerSelect = useCallback(
+    (
+      nodeId: NodeId,
 
-      return setEditorSelection(currentState, nextSelection);
-    });
-  }, []);
+      additive: boolean,
+    ) => {
+      setEditorState((currentState) => {
+        const nextSelection = additive
+          ? toggleNodeSelection(currentState.selection, nodeId)
+          : selectSingleNode(currentState.selection, nodeId);
+
+        return setEditorSelection(currentState, nextSelection);
+      });
+    },
+    [],
+  );
 
   const handleNudgeSelection = useCallback((delta: Point) => {
     setEditorState((currentState) => {
@@ -161,7 +177,9 @@ export function EditorShell() {
 
       return dispatchEditorCommand(currentState, {
         kind: "move",
+
         label: "Nudge selection",
+
         nextDocument,
       });
     });
@@ -184,8 +202,11 @@ export function EditorShell() {
 
       return dispatchEditorCommand(currentState, {
         kind: "delete",
+
         label: "Delete selection",
+
         nextDocument,
+
         nextSelection: clearSelection(currentState.selection),
       });
     });
@@ -219,7 +240,9 @@ export function EditorShell() {
 
             <nav className={styles.menu} aria-label="Application menu">
               <span>File</span>
+
               <span>Edit</span>
+
               <span>View</span>
             </nav>
           </div>
@@ -318,7 +341,7 @@ export function EditorShell() {
               ref={canvasRef}
               document={document}
               selection={selection}
-              onDocumentChange={handleDocumentChange}
+              onGestureCommit={handleGestureCommit}
               onSelectionChange={handleSelectionChange}
               onNudgeSelection={handleNudgeSelection}
               onDeleteSelection={handleDeleteSelection}
@@ -352,11 +375,13 @@ export function EditorShell() {
                   <dl className={styles.propertyGrid}>
                     <div>
                       <dt>X</dt>
+
                       <dd>{Math.round(selectedNode.x)}</dd>
                     </div>
 
                     <div>
                       <dt>Y</dt>
+
                       <dd>{Math.round(selectedNode.y)}</dd>
                     </div>
                   </dl>
@@ -368,11 +393,13 @@ export function EditorShell() {
                   <dl className={styles.propertyGrid}>
                     <div>
                       <dt>W</dt>
+
                       <dd>{Math.round(selectedNode.width)}</dd>
                     </div>
 
                     <div>
                       <dt>H</dt>
+
                       <dd>{Math.round(selectedNode.height)}</dd>
                     </div>
                   </dl>
@@ -384,11 +411,13 @@ export function EditorShell() {
                   <dl className={styles.metadata}>
                     <div>
                       <dt>Rotation</dt>
+
                       <dd>{selectedNode.rotation}°</dd>
                     </div>
 
                     <div>
                       <dt>Opacity</dt>
+
                       <dd>{Math.round(selectedNode.opacity * 100)}%</dd>
                     </div>
                   </dl>
@@ -408,16 +437,19 @@ export function EditorShell() {
               <dl className={styles.metadata}>
                 <div>
                   <dt>Name</dt>
+
                   <dd>{document.name}</dd>
                 </div>
 
                 <div>
                   <dt>Objects</dt>
+
                   <dd>{nodeCount}</dd>
                 </div>
 
                 <div>
                   <dt>Renderer</dt>
+
                   <dd>Canvas 2D</dd>
                 </div>
               </dl>

@@ -6,6 +6,7 @@ import {
   useEffect,
   useImperativeHandle,
   useRef,
+  useState,
 } from "react";
 
 import {
@@ -14,6 +15,7 @@ import {
   fitCameraToBounds,
   panCamera,
   screenToWorld,
+  worldToScreen,
   zoomCameraAtPoint,
   ZOOM_BUTTON_FACTOR,
 } from "@/editor/camera/camera";
@@ -29,6 +31,11 @@ import {
   getShapeCreationBounds,
   insertRootShape,
 } from "@/editor/document/shapeCreation";
+import {
+  createTextNodeId,
+  insertRootText,
+  updateTextNodeContent,
+} from "@/editor/document/textEditing";
 import { getNodeWorldGeometry } from "@/editor/document/nodeGeometry";
 import { moveNodesBy } from "@/editor/document/documentOperations";
 import type { EditorDocument, NodeId } from "@/editor/document/types";
@@ -116,6 +123,13 @@ interface EditorCanvasProps {
   onZoomChange?: (zoom: number) => void;
 }
 
+interface TextEditingSession {
+  nodeId: NodeId;
+  draft: string;
+  transaction: GestureTransaction;
+  isCreating: boolean;
+}
+
 export interface EditorCanvasHandle {
   zoomIn: () => void;
   zoomOut: () => void;
@@ -199,6 +213,11 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
     const onDeleteSelectionRef = useRef(onDeleteSelection);
     const onZoomChangeRef = useRef(onZoomChange);
     const requestRenderRef = useRef<() => void>(() => undefined);
+    const textEditorRef = useRef<HTMLTextAreaElement>(null);
+    const textEditingRef = useRef<TextEditingSession | null>(null);
+    const [textEditing, setTextEditing] = useState<TextEditingSession | null>(
+      null,
+    );
 
     useEffect(() => {
       documentRef.current = document;
@@ -247,6 +266,158 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
       onZoomChangeRef.current = onZoomChange;
     }, [onZoomChange]);
 
+    const setTextEditingSession = useCallback(
+      (session: TextEditingSession | null) => {
+        textEditingRef.current = session;
+        setTextEditing(session);
+      },
+      [],
+    );
+
+    const syncTextEditorOverlay = useCallback(() => {
+      const editor = textEditorRef.current;
+      const session = textEditingRef.current;
+
+      if (!editor || !session) {
+        return;
+      }
+
+      const node = documentRef.current.nodes[session.nodeId];
+
+      if (!node || node.type !== "text") {
+        return;
+      }
+
+      const geometry = getNodeWorldGeometry(
+        documentRef.current,
+        session.nodeId,
+      );
+
+      if (!geometry) {
+        return;
+      }
+
+      const screenNorthWest = worldToScreen(
+        geometry.corners.northWest,
+        cameraRef.current,
+      );
+
+      const zoom = cameraRef.current.zoom;
+      const width = Math.max(40, node.width * zoom);
+      const minimumHeight = Math.max(24, node.height * zoom);
+
+      editor.style.left = `${screenNorthWest.x}px`;
+      editor.style.top = `${screenNorthWest.y}px`;
+      editor.style.width = `${width}px`;
+      editor.style.height = "auto";
+      editor.style.minHeight = `${minimumHeight}px`;
+      editor.style.fontFamily = node.fontFamily;
+      editor.style.fontSize = `${node.fontSize * zoom}px`;
+      editor.style.fontWeight = String(node.fontWeight);
+      editor.style.textAlign = node.textAlign;
+      editor.style.color = node.fill.color;
+      editor.style.lineHeight = "1.25";
+      editor.style.transformOrigin = "0 0";
+      editor.style.transform = `rotate(${geometry.rotation}deg)`;
+      editor.style.height = `${Math.max(minimumHeight, editor.scrollHeight)}px`;
+    }, []);
+
+    const finishTextEditing = useCallback(
+      (shouldCommit: boolean) => {
+        const session = textEditingRef.current;
+
+        if (!session) {
+          return;
+        }
+
+        const normalizedDraft = session.draft.replace(/\r\n/g, "\n");
+        const shouldCancelEmptyCreation =
+          session.isCreating && normalizedDraft.trim().length === 0;
+
+        if (!shouldCommit || shouldCancelEmptyCreation) {
+          documentRef.current = session.transaction.before.document;
+          selectionRef.current = session.transaction.before.selection;
+          setTextEditingSession(null);
+          requestRenderRef.current();
+          return;
+        }
+
+        const nextDocument = updateTextNodeContent(
+          documentRef.current,
+          session.nodeId,
+          normalizedDraft,
+        );
+
+        const nextSelection = selectSingleNode(
+          selectionRef.current,
+          session.nodeId,
+        );
+
+        documentRef.current = nextDocument;
+        selectionRef.current = nextSelection;
+
+        onGestureCommitRef.current({
+          transaction: session.transaction,
+          nextDocument,
+          nextSelection,
+        });
+
+        setTextEditingSession(null);
+        requestRenderRef.current();
+      },
+      [setTextEditingSession],
+    );
+
+    const handleTextDraftChange = useCallback(
+      (draft: string) => {
+        const session = textEditingRef.current;
+
+        if (!session) {
+          return;
+        }
+
+        const nextSession = {
+          ...session,
+          draft,
+        };
+
+        textEditingRef.current = nextSession;
+        setTextEditing(nextSession);
+
+        window.requestAnimationFrame(() => {
+          syncTextEditorOverlay();
+        });
+      },
+      [syncTextEditorOverlay],
+    );
+
+    const editingNodeId = textEditing?.nodeId ?? null;
+
+    useEffect(() => {
+      if (!editingNodeId) {
+        return;
+      }
+
+      const frameId = window.requestAnimationFrame(() => {
+        syncTextEditorOverlay();
+
+        const editor = textEditorRef.current;
+
+        if (!editor) {
+          return;
+        }
+
+        editor.focus();
+
+        const end = editor.value.length;
+        editor.setSelectionRange(end, end);
+      });
+
+      return () => {
+        window.cancelAnimationFrame(frameId);
+      };
+    }, [editingNodeId, syncTextEditorOverlay]);
+
     const applyCamera = useCallback(
       (camera: CameraState, notifyZoom = true) => {
         cameraRef.current = camera;
@@ -256,8 +427,9 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         }
 
         requestRenderRef.current();
+        syncTextEditorOverlay();
       },
-      [],
+      [syncTextEditorOverlay],
     );
 
     const getViewportCenter = useCallback((): Point | null => {
@@ -401,11 +573,26 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         canvas.style.width = `${viewportWidth}px`;
         canvas.style.height = `${viewportHeight}px`;
 
-        documentRenderer.render(
-          documentRef.current,
-          cameraRef.current,
-          pixelRatio,
-        );
+        const editingSession = textEditingRef.current;
+        const editingNode = editingSession
+          ? documentRef.current.nodes[editingSession.nodeId]
+          : null;
+
+        const renderDocument =
+          editingNode && editingNode.type === "text"
+            ? {
+                ...documentRef.current,
+                nodes: {
+                  ...documentRef.current.nodes,
+                  [editingNode.id]: {
+                    ...editingNode,
+                    visible: false,
+                  },
+                },
+              }
+            : documentRef.current;
+
+        documentRenderer.render(renderDocument, cameraRef.current, pixelRatio);
 
         guideRenderer.render(activeGuides, cameraRef.current, pixelRatio);
 
@@ -417,6 +604,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         );
 
         marqueeRenderer.render(marquee, cameraRef.current, pixelRatio);
+        syncTextEditorOverlay();
       };
 
       const requestRender = () => {
@@ -432,7 +620,9 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
       requestRenderRef.current = requestRender;
 
-      const getScreenPoint = (event: PointerEvent): Point => {
+      const getScreenPoint = (
+        event: Pick<MouseEvent, "clientX" | "clientY">,
+      ): Point => {
         const viewportRect = viewport.getBoundingClientRect();
 
         return {
@@ -441,7 +631,9 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         };
       };
 
-      const getWorldPoint = (event: PointerEvent): Point => {
+      const getWorldPoint = (
+        event: Pick<MouseEvent, "clientX" | "clientY">,
+      ): Point => {
         return screenToWorld(getScreenPoint(event), cameraRef.current);
       };
 
@@ -854,6 +1046,71 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         viewport.dataset.rotatingNode = "true";
         viewport.dataset.transformHandle = "rotation";
         viewport.style.cursor = "grabbing";
+      };
+
+      const startTextCreation = (worldPoint: Point) => {
+        clearSnapping();
+
+        const transaction = beginGestureTransaction(
+          "create",
+          "Create Text",
+          documentRef.current,
+          selectionRef.current,
+        );
+
+        const nodeId = createTextNodeId(documentRef.current);
+        const nextDocument = insertRootText(
+          documentRef.current,
+          nodeId,
+          worldPoint,
+        );
+
+        const nextSelection = selectSingleNode(selectionRef.current, nodeId);
+
+        documentRef.current = nextDocument;
+        selectionRef.current = nextSelection;
+
+        const session: TextEditingSession = {
+          nodeId,
+          draft: "",
+          transaction,
+          isCreating: true,
+        };
+
+        setTextEditingSession(session);
+        activeToolRef.current = "select";
+        onToolChangeRef.current("select");
+        viewport.style.cursor = "";
+        requestRender();
+      };
+
+      const startExistingTextEditing = (nodeId: NodeId) => {
+        const node = documentRef.current.nodes[nodeId];
+
+        if (!node || node.type !== "text" || node.locked || !node.visible) {
+          return;
+        }
+
+        clearSnapping();
+
+        const transaction = beginGestureTransaction(
+          "update",
+          "Edit Text",
+          documentRef.current,
+          selectionRef.current,
+        );
+
+        selectionRef.current = selectSingleNode(selectionRef.current, nodeId);
+
+        const session: TextEditingSession = {
+          nodeId,
+          draft: node.content,
+          transaction,
+          isCreating: false,
+        };
+
+        setTextEditingSession(session);
+        requestRender();
       };
 
       const startShapeCreation = (
@@ -1328,6 +1585,12 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           return;
         }
 
+        if (textEditingRef.current) {
+          event.preventDefault();
+          finishTextEditing(true);
+          return;
+        }
+
         event.preventDefault();
         canvas.focus({ preventScroll: true });
 
@@ -1338,6 +1601,11 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
         const worldPoint = getWorldPoint(event);
         const currentTool = activeToolRef.current;
+
+        if (currentTool === "text") {
+          startTextCreation(worldPoint);
+          return;
+        }
 
         if (isShapeCreationTool(currentTool)) {
           startShapeCreation(event, currentTool, worldPoint);
@@ -1459,6 +1727,32 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         }
 
         startMarquee(event, worldPoint);
+      };
+
+      const handleDoubleClick = (event: MouseEvent) => {
+        if (
+          activeToolRef.current !== "select" ||
+          textEditingRef.current ||
+          pointerInteraction !== "idle"
+        ) {
+          return;
+        }
+
+        const worldPoint = getWorldPoint(event);
+        const hitNodeId = hitTestDocument(documentRef.current, worldPoint);
+
+        if (!hitNodeId) {
+          return;
+        }
+
+        const node = documentRef.current.nodes[hitNodeId];
+
+        if (!node || node.type !== "text") {
+          return;
+        }
+
+        event.preventDefault();
+        startExistingTextEditing(hitNodeId);
       };
 
       const handlePointerMove = (event: PointerEvent) => {
@@ -1639,6 +1933,10 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
       };
 
       const handleWindowBlur = () => {
+        if (textEditingRef.current) {
+          finishTextEditing(true);
+        }
+
         isSpacePressed = false;
         delete viewport.dataset.panReady;
 
@@ -1662,6 +1960,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
       window.addEventListener("keyup", handleKeyUp);
       window.addEventListener("blur", handleWindowBlur);
       canvas.addEventListener("pointerdown", handlePointerDown);
+      canvas.addEventListener("dblclick", handleDoubleClick);
       canvas.addEventListener("pointermove", handlePointerMove);
       canvas.addEventListener("pointerup", handlePointerUp);
       canvas.addEventListener("pointercancel", handlePointerCancel);
@@ -1676,6 +1975,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         window.removeEventListener("keyup", handleKeyUp);
         window.removeEventListener("blur", handleWindowBlur);
         canvas.removeEventListener("pointerdown", handlePointerDown);
+        canvas.removeEventListener("dblclick", handleDoubleClick);
         canvas.removeEventListener("pointermove", handlePointerMove);
         canvas.removeEventListener("pointerup", handlePointerUp);
         canvas.removeEventListener("pointercancel", handlePointerCancel);
@@ -1686,7 +1986,12 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           window.cancelAnimationFrame(animationFrameId);
         }
       };
-    }, [applyCamera]);
+    }, [
+      applyCamera,
+      finishTextEditing,
+      setTextEditingSession,
+      syncTextEditorOverlay,
+    ]);
 
     return (
       <div
@@ -1700,6 +2005,46 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           aria-label="CanvasLab design canvas"
           tabIndex={0}
         />
+
+        {textEditing ? (
+          <textarea
+            ref={textEditorRef}
+            value={textEditing.draft}
+            aria-label={textEditing.isCreating ? "Create text" : "Edit text"}
+            spellCheck={false}
+            onChange={(event) => handleTextDraftChange(event.target.value)}
+            onBlur={() => finishTextEditing(true)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                event.stopPropagation();
+                finishTextEditing(false);
+                return;
+              }
+
+              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                event.preventDefault();
+                event.stopPropagation();
+                finishTextEditing(true);
+              }
+            }}
+            style={{
+              position: "absolute",
+              zIndex: 10,
+              margin: 0,
+              padding: 0,
+              overflow: "hidden",
+              resize: "none",
+              border: "1px solid #2563eb",
+              borderRadius: 2,
+              outline: "none",
+              background: "rgba(255, 255, 255, 0.96)",
+              boxShadow: "0 0 0 1px rgba(37, 99, 235, 0.15)",
+              caretColor: "#2563eb",
+              whiteSpace: "pre-wrap",
+            }}
+          />
+        ) : null}
       </div>
     );
   },

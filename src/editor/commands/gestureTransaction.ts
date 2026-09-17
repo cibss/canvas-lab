@@ -11,7 +11,7 @@ import type { EditorState } from "@/editor/state/editorState";
 
 export type GestureCommandKind = Extract<
   EditorCommandKind,
-  "create" | "move" | "resize" | "rotate"
+  "create" | "move" | "resize" | "rotate" | "update"
 >;
 
 export interface GestureTransaction {
@@ -32,7 +32,6 @@ export interface GestureTransactionCommit {
 
 function areSelectionsEqual(
   left: SelectionState,
-
   right: SelectionState,
 ): boolean {
   if (left.selectedNodeIds.length !== right.selectedNodeIds.length) {
@@ -46,7 +45,6 @@ function areSelectionsEqual(
 
 function isTransactionStillCurrent(
   state: EditorState,
-
   transaction: GestureTransaction,
 ): boolean {
   return (
@@ -57,11 +55,8 @@ function isTransactionStillCurrent(
 
 export function beginGestureTransaction(
   kind: GestureCommandKind,
-
   label: string,
-
   document: EditorDocument,
-
   selection: SelectionState,
 ): GestureTransaction {
   return {
@@ -75,7 +70,6 @@ export function beginGestureTransaction(
 
 export function commitGestureTransaction(
   state: EditorState,
-
   input: GestureTransactionCommit,
 ): EditorState {
   if (!isTransactionStillCurrent(state, input.transaction)) {

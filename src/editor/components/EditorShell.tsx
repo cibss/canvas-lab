@@ -11,6 +11,10 @@ import {
 import { canRedo, canUndo } from "@/editor/commands/history";
 import { getHistoryShortcut } from "@/editor/commands/historyShortcut";
 import { deleteNodes, moveNodesBy } from "@/editor/document/documentOperations";
+import {
+  updateNodeProperty,
+  type EditableNodeProperty,
+} from "@/editor/document/nodeProperties";
 import { sampleDocument } from "@/editor/document/sampleDocument";
 import type {
   EditorDocument,
@@ -38,6 +42,7 @@ import {
 
 import { EditorCanvas, type EditorCanvasHandle } from "./EditorCanvas";
 import { EditorToolbar } from "./EditorToolbar";
+import { PropertiesInspector } from "./PropertiesInspector";
 
 import styles from "./EditorShell.module.css";
 
@@ -46,6 +51,15 @@ const nodeIcons: Record<EditorNode["type"], string> = {
   rectangle: "□",
   ellipse: "○",
   text: "T",
+};
+
+const propertyLabels: Record<EditableNodeProperty, string> = {
+  x: "X",
+  y: "Y",
+  width: "width",
+  height: "height",
+  rotation: "rotation",
+  opacity: "opacity",
 };
 
 interface LayerTreeProps {
@@ -57,11 +71,7 @@ interface LayerTreeProps {
 
   depth?: number;
 
-  onSelectNode: (
-    nodeId: NodeId,
-
-    additive: boolean,
-  ) => void;
+  onSelectNode: (nodeId: NodeId, additive: boolean) => void;
 }
 
 function LayerTree({
@@ -226,22 +236,15 @@ export function EditorShell() {
     );
   }, []);
 
-  const handleLayerSelect = useCallback(
-    (
-      nodeId: NodeId,
+  const handleLayerSelect = useCallback((nodeId: NodeId, additive: boolean) => {
+    setEditorState((currentState) => {
+      const nextSelection = additive
+        ? toggleNodeSelection(currentState.selection, nodeId)
+        : selectSingleNode(currentState.selection, nodeId);
 
-      additive: boolean,
-    ) => {
-      setEditorState((currentState) => {
-        const nextSelection = additive
-          ? toggleNodeSelection(currentState.selection, nodeId)
-          : selectSingleNode(currentState.selection, nodeId);
-
-        return setEditorSelection(currentState, nextSelection);
-      });
-    },
-    [],
-  );
+      return setEditorSelection(currentState, nextSelection);
+    });
+  }, []);
 
   const handleNudgeSelection = useCallback((delta: Point) => {
     setEditorState((currentState) => {
@@ -299,6 +302,38 @@ export function EditorShell() {
       });
     });
   }, []);
+
+  const handlePropertyCommit = useCallback(
+    (nodeId: NodeId, property: EditableNodeProperty, value: number) => {
+      setEditorState((currentState) => {
+        const selectedIds = currentState.selection.selectedNodeIds;
+
+        if (selectedIds.length !== 1 || selectedIds[0] !== nodeId) {
+          return currentState;
+        }
+
+        const nextDocument = updateNodeProperty(
+          currentState.document,
+          nodeId,
+          property,
+          value,
+        );
+
+        if (nextDocument === currentState.document) {
+          return currentState;
+        }
+
+        return dispatchEditorCommand(currentState, {
+          kind: "update",
+
+          label: `Update ${propertyLabels[property]}`,
+
+          nextDocument,
+        });
+      });
+    },
+    [],
+  );
 
   return (
     <>
@@ -477,67 +512,10 @@ export function EditorShell() {
                 </p>
               </div>
             ) : selectedNode ? (
-              <>
-                <div className={styles.selectionSummary}>
-                  <strong>{selectedNode.name}</strong>
-
-                  <p>{selectedNode.type}</p>
-                </div>
-
-                <div className={styles.propertySection}>
-                  <div className={styles.sectionTitle}>Position</div>
-
-                  <dl className={styles.propertyGrid}>
-                    <div>
-                      <dt>X</dt>
-
-                      <dd>{Math.round(selectedNode.x)}</dd>
-                    </div>
-
-                    <div>
-                      <dt>Y</dt>
-
-                      <dd>{Math.round(selectedNode.y)}</dd>
-                    </div>
-                  </dl>
-                </div>
-
-                <div className={styles.propertySection}>
-                  <div className={styles.sectionTitle}>Size</div>
-
-                  <dl className={styles.propertyGrid}>
-                    <div>
-                      <dt>W</dt>
-
-                      <dd>{Math.round(selectedNode.width)}</dd>
-                    </div>
-
-                    <div>
-                      <dt>H</dt>
-
-                      <dd>{Math.round(selectedNode.height)}</dd>
-                    </div>
-                  </dl>
-                </div>
-
-                <div className={styles.propertySection}>
-                  <div className={styles.sectionTitle}>Transform</div>
-
-                  <dl className={styles.metadata}>
-                    <div>
-                      <dt>Rotation</dt>
-
-                      <dd>{selectedNode.rotation}°</dd>
-                    </div>
-
-                    <div>
-                      <dt>Opacity</dt>
-
-                      <dd>{Math.round(selectedNode.opacity * 100)}%</dd>
-                    </div>
-                  </dl>
-                </div>
-              </>
+              <PropertiesInspector
+                node={selectedNode}
+                onCommit={handlePropertyCommit}
+              />
             ) : (
               <div className={styles.selectionSummary}>
                 <strong>No selection</strong>

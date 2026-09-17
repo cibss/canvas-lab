@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { Point } from "@/editor/camera/types";
 import { dispatchEditorCommand } from "@/editor/commands/dispatch";
@@ -8,6 +8,8 @@ import {
   commitGestureTransaction,
   type GestureTransactionCommit,
 } from "@/editor/commands/gestureTransaction";
+import { canRedo, canUndo } from "@/editor/commands/history";
+import { getHistoryShortcut } from "@/editor/commands/historyShortcut";
 import { deleteNodes, moveNodesBy } from "@/editor/document/documentOperations";
 import { sampleDocument } from "@/editor/document/sampleDocument";
 import type {
@@ -25,7 +27,9 @@ import {
 } from "@/editor/selection/selection";
 import {
   createEditorState,
+  redoEditorState,
   setEditorSelection,
+  undoEditorState,
 } from "@/editor/state/editorState";
 
 import { EditorCanvas, type EditorCanvasHandle } from "./EditorCanvas";
@@ -41,7 +45,6 @@ const nodeIcons: Record<EditorNode["type"], string> = {
 
 interface LayerTreeProps {
   document: EditorDocument;
-
   selection: SelectionState;
 
   nodeId: NodeId;
@@ -104,6 +107,19 @@ function LayerTree({
   );
 }
 
+function shouldIgnoreHistoryShortcut(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  return (
+    target.isContentEditable ||
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement
+  );
+}
+
 export function EditorShell() {
   const canvasRef = useRef<EditorCanvasHandle>(null);
 
@@ -113,7 +129,15 @@ export function EditorShell() {
 
   const [zoomPercentage, setZoomPercentage] = useState(100);
 
-  const { document, selection } = editorState;
+  const { document, selection, history } = editorState;
+
+  const canUndoHistory = canUndo(history);
+
+  const canRedoHistory = canRedo(history);
+
+  const undoCommand = history.undoStack[history.undoStack.length - 1];
+
+  const redoCommand = history.redoStack[history.redoStack.length - 1];
 
   const nodeCount = Object.keys(document.nodes).length;
 
@@ -122,6 +146,54 @@ export function EditorShell() {
   const selectedNodeId = selection.selectedNodeIds[0] ?? null;
 
   const selectedNode = selectedNodeId ? document.nodes[selectedNodeId] : null;
+
+  const handleUndo = useCallback(() => {
+    setEditorState((currentState) => undoEditorState(currentState));
+  }, []);
+
+  const handleRedo = useCallback(() => {
+    setEditorState((currentState) => redoEditorState(currentState));
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || shouldIgnoreHistoryShortcut(event.target)) {
+        return;
+      }
+
+      const action = getHistoryShortcut({
+        key: event.key,
+
+        metaKey: event.metaKey,
+
+        ctrlKey: event.ctrlKey,
+
+        shiftKey: event.shiftKey,
+
+        altKey: event.altKey,
+      });
+
+      if (!action) {
+        return;
+      }
+
+      event.preventDefault();
+
+      if (action === "undo") {
+        handleUndo();
+
+        return;
+      }
+
+      handleRedo();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [handleRedo, handleUndo]);
 
   const handleGestureCommit = useCallback(
     (commit: GestureTransactionCommit) => {
@@ -142,22 +214,15 @@ export function EditorShell() {
     );
   }, []);
 
-  const handleLayerSelect = useCallback(
-    (
-      nodeId: NodeId,
+  const handleLayerSelect = useCallback((nodeId: NodeId, additive: boolean) => {
+    setEditorState((currentState) => {
+      const nextSelection = additive
+        ? toggleNodeSelection(currentState.selection, nodeId)
+        : selectSingleNode(currentState.selection, nodeId);
 
-      additive: boolean,
-    ) => {
-      setEditorState((currentState) => {
-        const nextSelection = additive
-          ? toggleNodeSelection(currentState.selection, nodeId)
-          : selectSingleNode(currentState.selection, nodeId);
-
-        return setEditorSelection(currentState, nextSelection);
-      });
-    },
-    [],
-  );
+      return setEditorSelection(currentState, nextSelection);
+    });
+  }, []);
 
   const handleNudgeSelection = useCallback((delta: Point) => {
     setEditorState((currentState) => {
@@ -248,9 +313,57 @@ export function EditorShell() {
           </div>
 
           <div className={styles.topBarActions}>
-            <span className={styles.historyAction}>↶</span>
+            <button
+              type="button"
+              className={styles.historyAction}
+              onClick={handleUndo}
+              disabled={!canUndoHistory}
+              aria-label={undoCommand ? `Undo ${undoCommand.label}` : "Undo"}
+              title={
+                undoCommand
+                  ? `Undo ${undoCommand.label} (Cmd/Ctrl+Z)`
+                  : "Nothing to undo"
+              }
+              style={{
+                border: 0,
+                background: "transparent",
+                padding: 0,
+                font: "inherit",
+                color: "inherit",
 
-            <span className={styles.historyAction}>↷</span>
+                opacity: canUndoHistory ? 1 : 0.35,
+
+                cursor: canUndoHistory ? "pointer" : "default",
+              }}
+            >
+              ↶
+            </button>
+
+            <button
+              type="button"
+              className={styles.historyAction}
+              onClick={handleRedo}
+              disabled={!canRedoHistory}
+              aria-label={redoCommand ? `Redo ${redoCommand.label}` : "Redo"}
+              title={
+                redoCommand
+                  ? `Redo ${redoCommand.label} (Cmd/Ctrl+Shift+Z)`
+                  : "Nothing to redo"
+              }
+              style={{
+                border: 0,
+                background: "transparent",
+                padding: 0,
+                font: "inherit",
+                color: "inherit",
+
+                opacity: canRedoHistory ? 1 : 0.35,
+
+                cursor: canRedoHistory ? "pointer" : "default",
+              }}
+            >
+              ↷
+            </button>
 
             <div className={styles.zoomControls} aria-label="Zoom controls">
               <button
@@ -357,8 +470,8 @@ export function EditorShell() {
                 <strong>{selectedNodeCount} objects selected</strong>
 
                 <p>
-                  Multiple objects are selected. Shared transform controls will
-                  be added in the next milestone.
+                  Multiple objects are selected. Shared transform controls are
+                  available on the canvas.
                 </p>
               </div>
             ) : selectedNode ? (

@@ -58,6 +58,7 @@ import { getEditorToolFromShortcut } from "@/editor/tools/toolShortcut";
 import { EditorCanvas, type EditorCanvasHandle } from "./EditorCanvas";
 import { EditorToolbar } from "./EditorToolbar";
 import { PropertiesInspector } from "./PropertiesInspector";
+import { SemanticCanvasMirror } from "./SemanticCanvasMirror";
 
 import styles from "./EditorShell.module.css";
 
@@ -984,6 +985,8 @@ export function EditorShell() {
               onDeleteSelection={handleDeleteSelection}
               onZoomChange={handleZoomChange}
             />
+
+            <SemanticCanvasMirror document={document} />
           </section>
 
           <aside className={styles.propertiesPanel}>

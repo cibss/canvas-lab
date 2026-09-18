@@ -986,7 +986,13 @@ export function EditorShell() {
               onZoomChange={handleZoomChange}
             />
 
-            <SemanticCanvasMirror document={document} />
+            <SemanticCanvasMirror
+              document={document}
+              selection={selection}
+              onSelectNode={(nodeId) => {
+                handleLayerSelect(nodeId, false);
+              }}
+            />
           </section>
 
           <aside className={styles.propertiesPanel}>

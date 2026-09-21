@@ -22,6 +22,11 @@ import {
 } from "@/editor/camera/camera";
 import type { CameraState, Point } from "@/editor/camera/types";
 import {
+  getKeyboardEditableTextNodeId,
+  shouldRestoreCanvasFocus,
+  type TextEditorExitReason,
+} from "@/editor/accessibility/focusSafety";
+import {
   beginGestureTransaction,
   type GestureTransaction,
   type GestureTransactionCommit,
@@ -110,11 +115,6 @@ import {
 } from "@/editor/tools/editorTool";
 
 import styles from "./EditorCanvas.module.css";
-import {
-  TextEditorExitReason,
-  shouldRestoreCanvasFocus,
-  getKeyboardEditableTextNodeId,
-} from "../accessibility/focusSafety";
 
 interface EditorCanvasProps {
   document: EditorDocument;

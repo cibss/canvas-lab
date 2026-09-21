@@ -14,6 +14,8 @@ export const RENDER_INVALIDATION = {
   marquee: 1 << 5,
 
   textOverlay: 1 << 6,
+
+  textEditing: 1 << 7,
 } as const;
 
 export type RenderInvalidationFlag = Exclude<
@@ -99,7 +101,8 @@ export function requiresCanvasRender(mask: RenderInvalidationMask): boolean {
     RENDER_INVALIDATION.camera |
     RENDER_INVALIDATION.viewport |
     RENDER_INVALIDATION.guides |
-    RENDER_INVALIDATION.marquee;
+    RENDER_INVALIDATION.marquee |
+    RENDER_INVALIDATION.textEditing;
 
   return (mask & canvasMask) !== 0;
 }
@@ -109,7 +112,8 @@ export function requiresTextOverlaySync(mask: RenderInvalidationMask): boolean {
     RENDER_INVALIDATION.document |
     RENDER_INVALIDATION.camera |
     RENDER_INVALIDATION.viewport |
-    RENDER_INVALIDATION.textOverlay;
+    RENDER_INVALIDATION.textOverlay |
+    RENDER_INVALIDATION.textEditing;
 
   return (mask & overlayMask) !== 0;
 }

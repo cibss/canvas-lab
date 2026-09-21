@@ -90,11 +90,19 @@ describe("render invalidation", () => {
     expect(requiresCanvasRender(RENDER_INVALIDATION.textOverlay)).toBe(false);
   });
 
+  it("renders the canvas when text editing mode changes", () => {
+    expect(requiresCanvasRender(RENDER_INVALIDATION.textEditing)).toBe(true);
+  });
+
   it("syncs the text overlay when camera or viewport changes", () => {
     const mask: RenderInvalidationMask =
       RENDER_INVALIDATION.camera | RENDER_INVALIDATION.viewport;
 
     expect(requiresTextOverlaySync(mask)).toBe(true);
+  });
+
+  it("syncs the text overlay when text editing mode changes", () => {
+    expect(requiresTextOverlaySync(RENDER_INVALIDATION.textEditing)).toBe(true);
   });
 
   it("does not sync the text overlay for selection-only changes", () => {

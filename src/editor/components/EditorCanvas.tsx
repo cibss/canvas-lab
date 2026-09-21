@@ -45,6 +45,17 @@ import {
 import { getNodeWorldGeometry } from "@/editor/document/nodeGeometry";
 import { moveNodesBy } from "@/editor/document/documentOperations";
 import type { EditorDocument, NodeId } from "@/editor/document/types";
+import {
+  requiresCanvasRender,
+  requiresTextOverlaySync,
+  RENDER_INVALIDATION,
+  type RenderInvalidationMask,
+} from "@/editor/performance/renderInvalidation";
+import { createRenderInvalidationScheduler } from "@/editor/performance/renderScheduler";
+import {
+  createViewportRenderDocument,
+  createWorldBounds,
+} from "@/editor/performance/viewportCulling";
 import { AlignmentGuideRenderer } from "@/editor/renderer/AlignmentGuideRenderer";
 import { Canvas2DRenderer } from "@/editor/renderer/Canvas2DRenderer";
 import { MarqueeOverlayRenderer } from "@/editor/renderer/MarqueeOverlayRenderer";
@@ -160,6 +171,7 @@ const MARQUEE_DRAG_THRESHOLD = 3;
 const SHAPE_CREATION_DRAG_THRESHOLD = 3;
 const KEYBOARD_NUDGE = 1;
 const KEYBOARD_LARGE_NUDGE = 10;
+const VIEWPORT_CULLING_OVERSCAN = 64;
 
 function shouldIgnoreEditorShortcut(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
@@ -218,7 +230,9 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
     const onNudgeSelectionRef = useRef(onNudgeSelection);
     const onDeleteSelectionRef = useRef(onDeleteSelection);
     const onZoomChangeRef = useRef(onZoomChange);
-    const requestRenderRef = useRef<() => void>(() => undefined);
+    const requestRenderRef = useRef<(mask: RenderInvalidationMask) => void>(
+      () => undefined,
+    );
     const textEditorRef = useRef<HTMLTextAreaElement>(null);
     const canvasInstructionsId = useId();
     const textEditorInstructionsId = useId();
@@ -229,12 +243,12 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
     useEffect(() => {
       documentRef.current = document;
-      requestRenderRef.current();
+      requestRenderRef.current(RENDER_INVALIDATION.document);
     }, [document]);
 
     useEffect(() => {
       selectionRef.current = selection;
-      requestRenderRef.current();
+      requestRenderRef.current(RENDER_INVALIDATION.selection);
     }, [selection]);
 
     useEffect(() => {
@@ -246,8 +260,6 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         delete viewport.dataset.transformHandle;
         viewport.style.cursor = activeTool === "select" ? "" : "crosshair";
       }
-
-      requestRenderRef.current();
     }, [activeTool]);
 
     useEffect(() => {
@@ -352,7 +364,11 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           documentRef.current = session.transaction.before.document;
           selectionRef.current = session.transaction.before.selection;
           setTextEditingSession(null);
-          requestRenderRef.current();
+          requestRenderRef.current(
+            RENDER_INVALIDATION.document |
+              RENDER_INVALIDATION.selection |
+              RENDER_INVALIDATION.textEditing,
+          );
 
           if (shouldRestoreCanvasFocus(reason)) {
             restoreCanvasFocus();
@@ -382,7 +398,11 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         });
 
         setTextEditingSession(null);
-        requestRenderRef.current();
+        requestRenderRef.current(
+          RENDER_INVALIDATION.document |
+            RENDER_INVALIDATION.selection |
+            RENDER_INVALIDATION.textEditing,
+        );
 
         if (shouldRestoreCanvasFocus(reason)) {
           restoreCanvasFocus();
@@ -391,28 +411,23 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
       [restoreCanvasFocus, setTextEditingSession],
     );
 
-    const handleTextDraftChange = useCallback(
-      (draft: string) => {
-        const session = textEditingRef.current;
+    const handleTextDraftChange = useCallback((draft: string) => {
+      const session = textEditingRef.current;
 
-        if (!session) {
-          return;
-        }
+      if (!session) {
+        return;
+      }
 
-        const nextSession = {
-          ...session,
-          draft,
-        };
+      const nextSession = {
+        ...session,
+        draft,
+      };
 
-        textEditingRef.current = nextSession;
-        setTextEditing(nextSession);
+      textEditingRef.current = nextSession;
+      setTextEditing(nextSession);
 
-        window.requestAnimationFrame(() => {
-          syncTextEditorOverlay();
-        });
-      },
-      [syncTextEditorOverlay],
-    );
+      requestRenderRef.current(RENDER_INVALIDATION.textOverlay);
+    }, []);
 
     const editingNodeId = textEditing?.nodeId ?? null;
 
@@ -449,10 +464,9 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           onZoomChangeRef.current?.(camera.zoom);
         }
 
-        requestRenderRef.current();
-        syncTextEditorOverlay();
+        requestRenderRef.current(RENDER_INVALIDATION.camera);
       },
-      [syncTextEditorOverlay],
+      [],
     );
 
     const getViewportCenter = useCallback((): Point | null => {
@@ -538,7 +552,6 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
       const selectionRenderer = new SelectionOverlayRenderer(context);
       const marqueeRenderer = new MarqueeOverlayRenderer(context);
 
-      let animationFrameId: number | null = null;
       let isSpacePressed = false;
       let pointerInteraction: PointerInteraction = "idle";
       let activePointerId: number | null = null;
@@ -577,7 +590,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
       let marqueeAdditive = false;
       let marqueeStartClientPosition: Point | null = null;
 
-      const render = () => {
+      const renderCanvas = () => {
         const viewportRect = viewport.getBoundingClientRect();
         const viewportWidth = Math.max(1, Math.floor(viewportRect.width));
         const viewportHeight = Math.max(1, Math.floor(viewportRect.height));
@@ -615,7 +628,33 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
               }
             : documentRef.current;
 
-        documentRenderer.render(renderDocument, cameraRef.current, pixelRatio);
+        const viewportWorldBounds = createWorldBounds(
+          screenToWorld(
+            {
+              x: -VIEWPORT_CULLING_OVERSCAN,
+              y: -VIEWPORT_CULLING_OVERSCAN,
+            },
+            cameraRef.current,
+          ),
+          screenToWorld(
+            {
+              x: viewportWidth + VIEWPORT_CULLING_OVERSCAN,
+              y: viewportHeight + VIEWPORT_CULLING_OVERSCAN,
+            },
+            cameraRef.current,
+          ),
+        );
+
+        const viewportRenderDocument = createViewportRenderDocument(
+          renderDocument,
+          viewportWorldBounds,
+        );
+
+        documentRenderer.render(
+          viewportRenderDocument.document,
+          cameraRef.current,
+          pixelRatio,
+        );
 
         guideRenderer.render(activeGuides, cameraRef.current, pixelRatio);
 
@@ -627,18 +666,30 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         );
 
         marqueeRenderer.render(marquee, cameraRef.current, pixelRatio);
-        syncTextEditorOverlay();
       };
 
-      const requestRender = () => {
-        if (animationFrameId !== null) {
-          return;
-        }
+      const renderScheduler = createRenderInvalidationScheduler({
+        requestFrame(callback) {
+          return window.requestAnimationFrame(callback);
+        },
 
-        animationFrameId = window.requestAnimationFrame(() => {
-          animationFrameId = null;
-          render();
-        });
+        cancelFrame(frameId) {
+          window.cancelAnimationFrame(frameId);
+        },
+
+        onFlush(mask) {
+          if (requiresCanvasRender(mask)) {
+            renderCanvas();
+          }
+
+          if (requiresTextOverlaySync(mask)) {
+            syncTextEditorOverlay();
+          }
+        },
+      });
+
+      const requestRender = (mask: RenderInvalidationMask) => {
+        renderScheduler.request(mask);
       };
 
       requestRenderRef.current = requestRender;
@@ -672,7 +723,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         }
 
         selectionRef.current = nextSelection;
-        requestRender();
+        requestRender(RENDER_INVALIDATION.selection);
       };
 
       const commitSelection = () => {
@@ -794,14 +845,16 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
       };
 
       const endPointerInteraction = (shouldCommitGesture: boolean) => {
+        const completedInteraction = pointerInteraction;
+
         const isDocumentGesture =
-          pointerInteraction === "dragging-node" ||
-          pointerInteraction === "dragging-selection" ||
-          pointerInteraction === "resizing-node" ||
-          pointerInteraction === "resizing-selection" ||
-          pointerInteraction === "rotating-node" ||
-          pointerInteraction === "rotating-selection" ||
-          pointerInteraction === "creating-shape";
+          completedInteraction === "dragging-node" ||
+          completedInteraction === "dragging-selection" ||
+          completedInteraction === "resizing-node" ||
+          completedInteraction === "resizing-selection" ||
+          completedInteraction === "rotating-node" ||
+          completedInteraction === "rotating-selection" ||
+          completedInteraction === "creating-shape";
 
         if (isDocumentGesture && gestureTransaction) {
           if (shouldCommitGesture) {
@@ -850,7 +903,22 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         delete viewport.dataset.marqueeSelecting;
 
         clearTransformCursor();
-        requestRender();
+
+        if (isDocumentGesture) {
+          requestRender(
+            RENDER_INVALIDATION.document |
+              RENDER_INVALIDATION.selection |
+              RENDER_INVALIDATION.guides,
+          );
+
+          return;
+        }
+
+        if (completedInteraction === "marquee") {
+          requestRender(
+            RENDER_INVALIDATION.selection | RENDER_INVALIDATION.marquee,
+          );
+        }
       };
 
       const startNodeDrag = (
@@ -1104,7 +1172,11 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         activeToolRef.current = "select";
         onToolChangeRef.current("select");
         viewport.style.cursor = "";
-        requestRender();
+        requestRender(
+          RENDER_INVALIDATION.document |
+            RENDER_INVALIDATION.selection |
+            RENDER_INVALIDATION.textEditing,
+        );
       };
 
       const startExistingTextEditing = (nodeId: NodeId) => {
@@ -1133,7 +1205,9 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         };
 
         setTextEditingSession(session);
-        requestRender();
+        requestRender(
+          RENDER_INVALIDATION.selection | RENDER_INVALIDATION.textEditing,
+        );
       };
 
       const startShapeCreation = (
@@ -1169,7 +1243,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         canvas.setPointerCapture(event.pointerId);
         viewport.dataset.creatingShape = "true";
         viewport.style.cursor = "crosshair";
-        requestRender();
+        requestRender(RENDER_INVALIDATION.selection);
       };
 
       const updateShapeCreation = (event: PointerEvent) => {
@@ -1192,7 +1266,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           if (shapeCreationHasDraft) {
             documentRef.current = shapeCreationBaseDocument;
             shapeCreationHasDraft = false;
-            requestRender();
+            requestRender(RENDER_INVALIDATION.document);
           }
 
           return;
@@ -1215,7 +1289,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         );
 
         shapeCreationHasDraft = true;
-        requestRender();
+        requestRender(RENDER_INVALIDATION.document);
       };
 
       const startPan = (event: PointerEvent) => {
@@ -1250,7 +1324,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
         canvas.setPointerCapture(event.pointerId);
         viewport.dataset.marqueeSelecting = "true";
-        requestRender();
+        requestRender(RENDER_INVALIDATION.marquee);
       };
 
       const updateMarquee = (event: PointerEvent) => {
@@ -1274,7 +1348,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           : selectNodes(selectionRef.current, candidateNodeIds);
 
         applyRuntimeSelection(nextSelection);
-        requestRender();
+        requestRender(RENDER_INVALIDATION.marquee);
       };
 
       const updateNodeDrag = (event: PointerEvent) => {
@@ -1307,7 +1381,9 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           snapped.delta,
         );
 
-        requestRender();
+        requestRender(
+          RENDER_INVALIDATION.document | RENDER_INVALIDATION.guides,
+        );
       };
 
       const updateSelectionDrag = (event: PointerEvent) => {
@@ -1339,7 +1415,9 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           snapped.delta,
         );
 
-        requestRender();
+        requestRender(
+          RENDER_INVALIDATION.document | RENDER_INVALIDATION.guides,
+        );
       };
 
       const updateNodeResize = (event: PointerEvent) => {
@@ -1388,7 +1466,9 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           activeGuides = [];
         }
 
-        requestRender();
+        requestRender(
+          RENDER_INVALIDATION.document | RENDER_INVALIDATION.guides,
+        );
       };
 
       const updateSelectionResize = (event: PointerEvent) => {
@@ -1438,7 +1518,9 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           activeGuides = [];
         }
 
-        requestRender();
+        requestRender(
+          RENDER_INVALIDATION.document | RENDER_INVALIDATION.guides,
+        );
       };
 
       const updateNodeRotation = (event: PointerEvent) => {
@@ -1475,7 +1557,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           nextRotation,
         );
 
-        requestRender();
+        requestRender(RENDER_INVALIDATION.document);
       };
 
       const updateSelectionRotation = (event: PointerEvent) => {
@@ -1508,7 +1590,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           rotationDelta,
         );
 
-        requestRender();
+        requestRender(RENDER_INVALIDATION.document);
       };
 
       const handleKeyDown = (event: KeyboardEvent) => {
@@ -1812,7 +1894,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           };
 
           cameraRef.current = panCamera(cameraRef.current, deltaX, deltaY);
-          requestRender();
+          requestRender(RENDER_INVALIDATION.camera);
           return;
         }
 
@@ -1988,9 +2070,15 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         endPointerInteraction(pointerInteraction !== "creating-shape");
       };
 
-      render();
+      requestRender(
+        RENDER_INVALIDATION.document |
+          RENDER_INVALIDATION.selection |
+          RENDER_INVALIDATION.viewport,
+      );
 
-      const resizeObserver = new ResizeObserver(requestRender);
+      const resizeObserver = new ResizeObserver(() => {
+        requestRender(RENDER_INVALIDATION.viewport);
+      });
       resizeObserver.observe(viewport);
 
       window.addEventListener("keydown", handleKeyDown);
@@ -2019,9 +2107,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         canvas.removeEventListener("pointerleave", handlePointerLeave);
         canvas.removeEventListener("wheel", handleWheel);
 
-        if (animationFrameId !== null) {
-          window.cancelAnimationFrame(animationFrameId);
-        }
+        renderScheduler.cancel();
       };
     }, [
       applyCamera,

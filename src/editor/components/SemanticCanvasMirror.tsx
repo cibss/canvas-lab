@@ -98,7 +98,10 @@ export function SemanticCanvasMirror({
         Canvas objects
       </h2>
 
-      <p className={styles.instructions}>
+      <p
+        id="canvas-object-navigator-instructions"
+        className={styles.instructions}
+      >
         Use arrow keys to navigate objects. Press Enter or Space to select the
         focused object.
       </p>
@@ -108,6 +111,7 @@ export function SemanticCanvasMirror({
           className={styles.tree}
           role="tree"
           aria-label="Canvas object navigator"
+          aria-describedby="canvas-object-navigator-instructions"
         >
           {entries.map((entry) => {
             const { node, depth, hasChildren } = entry;

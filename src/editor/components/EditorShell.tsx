@@ -9,6 +9,15 @@ import {
   type CSSProperties,
 } from "react";
 
+import {
+  getDeleteAnnouncement,
+  getEditorActionAnnouncement,
+  getHistoryAnnouncement,
+  getNodeStateAnnouncement,
+  getPropertyAnnouncement,
+  getRenameAnnouncement,
+  getSelectionAnnouncement,
+} from "@/editor/accessibility/announcements";
 import type { Point } from "@/editor/camera/types";
 import { dispatchEditorCommand } from "@/editor/commands/dispatch";
 import {
@@ -19,6 +28,7 @@ import { canRedo, canUndo } from "@/editor/commands/history";
 import { getHistoryShortcut } from "@/editor/commands/historyShortcut";
 import { deleteNodes, moveNodesBy } from "@/editor/document/documentOperations";
 import {
+  normalizeNodeName,
   setNodeLocked,
   setNodeVisibility,
   updateNodeName,
@@ -57,6 +67,7 @@ import { getEditorToolFromShortcut } from "@/editor/tools/toolShortcut";
 
 import { EditorCanvas, type EditorCanvasHandle } from "./EditorCanvas";
 import { EditorToolbar } from "./EditorToolbar";
+import { LiveAnnouncer, type LiveAnnouncement } from "./LiveAnnouncer";
 import { PropertiesInspector } from "./PropertiesInspector";
 import { SemanticCanvasMirror } from "./SemanticCanvasMirror";
 
@@ -85,61 +96,53 @@ const layerContainerStyle: CSSProperties = {
 
 const layerActionsStyle: CSSProperties = {
   position: "absolute",
-
   top: "50%",
   right: 6,
-
   display: "flex",
-
   gap: 2,
-
   transform: "translateY(-50%)",
-
   zIndex: 2,
 };
 
 const layerActionButtonStyle: CSSProperties = {
   display: "grid",
-
   width: 24,
   height: 24,
-
   padding: 0,
-
   placeItems: "center",
-
   border: 0,
   borderRadius: 4,
-
   outline: 0,
-
   color: "#71717a",
-
   background: "transparent",
-
   cursor: "pointer",
 };
 
 const renameInputStyle: CSSProperties = {
   width: "100%",
   minWidth: 0,
-
   height: 24,
-
   padding: "0 6px",
-
   border: "1px solid #2563eb",
-
   borderRadius: 4,
-
   outline: 0,
-
   color: "#18181b",
-
   background: "#ffffff",
-
   font: "inherit",
 };
+
+function areSelectionsEqual(
+  left: SelectionState,
+  right: SelectionState,
+): boolean {
+  if (left.selectedNodeIds.length !== right.selectedNodeIds.length) {
+    return false;
+  }
+
+  return left.selectedNodeIds.every(
+    (nodeId, index) => nodeId === right.selectedNodeIds[index],
+  );
+}
 
 interface VisibilityIconProps {
   visible: boolean;
@@ -160,11 +163,8 @@ function VisibilityIcon({ visible }: VisibilityIconProps) {
         aria-hidden="true"
       >
         <path d="M3 3l18 18" />
-
         <path d="M10.6 10.7a2 2 0 002.7 2.7" />
-
         <path d="M9.9 4.2A10.8 10.8 0 0112 4c5.5 0 9 6 9 6a16.6 16.6 0 01-2.3 3.1" />
-
         <path d="M6.6 6.6C4.3 8.1 3 10 3 10s3.5 6 9 6a9.9 9.9 0 003.2-.5" />
       </svg>
     );
@@ -183,7 +183,6 @@ function VisibilityIcon({ visible }: VisibilityIconProps) {
       aria-hidden="true"
     >
       <path d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z" />
-
       <circle cx="12" cy="12" r="2.5" />
     </svg>
   );
@@ -219,11 +218,8 @@ function LockIcon({ locked }: LockIconProps) {
 
 interface LayerTreeProps {
   document: EditorDocument;
-
   selection: SelectionState;
-
   nodeId: NodeId;
-
   depth?: number;
 
   onSelectNode: (nodeId: NodeId, additive: boolean) => void;
@@ -283,9 +279,7 @@ function LayerTree({
 
   const rowStyle: CSSProperties = {
     paddingLeft: `${12 + depth * 16}px`,
-
     paddingRight: "66px",
-
     opacity: node.visible ? 1 : 0.5,
   };
 
@@ -327,7 +321,6 @@ function LayerTree({
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   event.preventDefault();
-
                   event.currentTarget.blur();
 
                   return;
@@ -337,7 +330,6 @@ function LayerTree({
                   event.preventDefault();
 
                   cancelRename();
-
                   event.currentTarget.blur();
                 }
               }}
@@ -391,7 +383,6 @@ function LayerTree({
             type="button"
             style={{
               ...layerActionButtonStyle,
-
               color: node.visible ? "#52525b" : "#a1a1aa",
             }}
             aria-label={
@@ -410,9 +401,7 @@ function LayerTree({
             type="button"
             style={{
               ...layerActionButtonStyle,
-
               color: node.locked ? "#2563eb" : "#71717a",
-
               background: node.locked ? "rgb(37 99 235 / 8%)" : "transparent",
             }}
             aria-label={
@@ -462,6 +451,8 @@ function isTextEditingTarget(target: EventTarget | null): boolean {
 export function EditorShell() {
   const canvasRef = useRef<EditorCanvasHandle>(null);
 
+  const announcementSequenceRef = useRef(0);
+
   const [editorState, setEditorState] = useState(() =>
     createEditorState(sampleDocument, createSelectionState()),
   );
@@ -469,6 +460,9 @@ export function EditorShell() {
   const [zoomPercentage, setZoomPercentage] = useState(100);
 
   const [activeTool, setActiveTool] = useState<EditorTool>(DEFAULT_EDITOR_TOOL);
+
+  const [liveAnnouncement, setLiveAnnouncement] =
+    useState<LiveAnnouncement | null>(null);
 
   const { document, selection, history } = editorState;
 
@@ -496,13 +490,39 @@ export function EditorShell() {
   const toolHint =
     activeTool === "select" ? "Space · Pan" : "Esc · Select · Space · Pan";
 
-  const handleUndo = useCallback(() => {
-    setEditorState((currentState) => undoEditorState(currentState));
+  const announce = useCallback((message: string | null) => {
+    if (!message) {
+      return;
+    }
+
+    announcementSequenceRef.current += 1;
+
+    setLiveAnnouncement({
+      id: announcementSequenceRef.current,
+
+      message,
+    });
   }, []);
 
+  const handleUndo = useCallback(() => {
+    if (!undoCommand) {
+      return;
+    }
+
+    announce(getHistoryAnnouncement("undo", undoCommand.label));
+
+    setEditorState((currentState) => undoEditorState(currentState));
+  }, [announce, undoCommand]);
+
   const handleRedo = useCallback(() => {
+    if (!redoCommand) {
+      return;
+    }
+
+    announce(getHistoryAnnouncement("redo", redoCommand.label));
+
     setEditorState((currentState) => redoEditorState(currentState));
-  }, []);
+  }, [announce, redoCommand]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -576,22 +596,37 @@ export function EditorShell() {
 
   const handleGestureCommit = useCallback(
     (commit: GestureTransactionCommit) => {
+      announce(
+        getEditorActionAnnouncement(
+          commit.nextDocument,
+          commit.nextSelection,
+          commit.transaction.kind,
+        ),
+      );
+
       setEditorState((currentState) =>
         commitGestureTransaction(currentState, commit),
       );
     },
-    [],
+    [announce],
   );
 
   const handleZoomChange = useCallback((zoom: number) => {
     setZoomPercentage(Math.round(zoom * 100));
   }, []);
 
-  const handleSelectionChange = useCallback((nextSelection: SelectionState) => {
-    setEditorState((currentState) =>
-      setEditorSelection(currentState, nextSelection),
-    );
-  }, []);
+  const handleSelectionChange = useCallback(
+    (nextSelection: SelectionState) => {
+      if (!areSelectionsEqual(selection, nextSelection)) {
+        announce(getSelectionAnnouncement(document, nextSelection));
+      }
+
+      setEditorState((currentState) =>
+        setEditorSelection(currentState, nextSelection),
+      );
+    },
+    [announce, document, selection],
+  );
 
   const handleLayerSelect = useCallback(
     (
@@ -599,23 +634,29 @@ export function EditorShell() {
 
       additive: boolean,
     ) => {
+      const node = document.nodes[nodeId];
+
+      if (!node || !node.visible || node.locked) {
+        return;
+      }
+
+      const nextSelection = additive
+        ? toggleNodeSelection(selection, nodeId)
+        : selectSingleNode(selection, nodeId);
+
       setActiveTool(DEFAULT_EDITOR_TOOL);
 
-      setEditorState((currentState) => {
-        const node = currentState.document.nodes[nodeId];
+      if (areSelectionsEqual(selection, nextSelection)) {
+        return;
+      }
 
-        if (!node || !node.visible || node.locked) {
-          return currentState;
-        }
+      announce(getSelectionAnnouncement(document, nextSelection));
 
-        const nextSelection = additive
-          ? toggleNodeSelection(currentState.selection, nodeId)
-          : selectSingleNode(currentState.selection, nodeId);
-
-        return setEditorSelection(currentState, nextSelection);
-      });
+      setEditorState((currentState) =>
+        setEditorSelection(currentState, nextSelection),
+      );
     },
-    [],
+    [announce, document, selection],
   );
 
   const handleRenameNode = useCallback(
@@ -624,6 +665,18 @@ export function EditorShell() {
 
       name: string,
     ) => {
+      const currentNode = document.nodes[nodeId];
+
+      const normalizedName = normalizeNodeName(name);
+
+      if (
+        currentNode &&
+        normalizedName &&
+        normalizedName !== currentNode.name
+      ) {
+        announce(getRenameAnnouncement(currentNode.name, normalizedName));
+      }
+
       setEditorState((currentState) => {
         const nextDocument = updateNodeName(
           currentState.document,
@@ -644,7 +697,7 @@ export function EditorShell() {
         });
       });
     },
-    [],
+    [announce, document],
   );
 
   const handleSetNodeVisibility = useCallback(
@@ -653,6 +706,14 @@ export function EditorShell() {
 
       visible: boolean,
     ) => {
+      const node = document.nodes[nodeId];
+
+      if (node && node.visible !== visible) {
+        announce(
+          getNodeStateAnnouncement(node.name, visible ? "show" : "hide"),
+        );
+      }
+
       setEditorState((currentState) => {
         const nextDocument = setNodeVisibility(
           currentState.document,
@@ -683,7 +744,7 @@ export function EditorShell() {
         });
       });
     },
-    [],
+    [announce, document],
   );
 
   const handleSetNodeLocked = useCallback(
@@ -692,6 +753,14 @@ export function EditorShell() {
 
       locked: boolean,
     ) => {
+      const node = document.nodes[nodeId];
+
+      if (node && node.locked !== locked) {
+        announce(
+          getNodeStateAnnouncement(node.name, locked ? "lock" : "unlock"),
+        );
+      }
+
       setEditorState((currentState) => {
         const nextDocument = setNodeLocked(
           currentState.document,
@@ -722,40 +791,61 @@ export function EditorShell() {
         });
       });
     },
-    [],
+    [announce, document],
   );
 
-  const handleNudgeSelection = useCallback((delta: Point) => {
-    setEditorState((currentState) => {
-      if (currentState.selection.selectedNodeIds.length === 0) {
-        return currentState;
+  const handleNudgeSelection = useCallback(
+    (delta: Point) => {
+      if (selection.selectedNodeIds.length === 0) {
+        return;
       }
 
-      const nextDocument = moveNodesBy(
-        currentState.document,
-        currentState.selection.selectedNodeIds,
+      const previewDocument = moveNodesBy(
+        document,
+        selection.selectedNodeIds,
         delta,
       );
 
-      if (nextDocument === currentState.document) {
-        return currentState;
+      if (previewDocument !== document) {
+        announce(
+          getEditorActionAnnouncement(previewDocument, selection, "move"),
+        );
       }
 
-      return dispatchEditorCommand(currentState, {
-        kind: "move",
+      setEditorState((currentState) => {
+        if (currentState.selection.selectedNodeIds.length === 0) {
+          return currentState;
+        }
 
-        label: "Nudge selection",
+        const nextDocument = moveNodesBy(
+          currentState.document,
+          currentState.selection.selectedNodeIds,
+          delta,
+        );
 
-        nextDocument,
+        if (nextDocument === currentState.document) {
+          return currentState;
+        }
 
-        coalesce: {
-          key: "keyboard-nudge",
-        },
+        return dispatchEditorCommand(currentState, {
+          kind: "move",
+
+          label: "Nudge selection",
+
+          nextDocument,
+
+          coalesce: {
+            key: "keyboard-nudge",
+          },
+        });
       });
-    });
-  }, []);
+    },
+    [announce, document, selection],
+  );
 
   const handleDeleteSelection = useCallback(() => {
+    announce(getDeleteAnnouncement(document, selection));
+
     setEditorState((currentState) => {
       if (currentState.selection.selectedNodeIds.length === 0) {
         return currentState;
@@ -780,7 +870,7 @@ export function EditorShell() {
         nextSelection: clearSelection(currentState.selection),
       });
     });
-  }, []);
+  }, [announce, document, selection]);
 
   const handlePropertyCommit = useCallback(
     (
@@ -790,10 +880,32 @@ export function EditorShell() {
 
       value: number,
     ) => {
-      setEditorState((currentState) => {
-        const selectedIds = currentState.selection.selectedNodeIds;
+      const selectedIds = selection.selectedNodeIds;
 
-        if (selectedIds.length !== 1 || selectedIds[0] !== nodeId) {
+      if (selectedIds.length === 1 && selectedIds[0] === nodeId) {
+        const previewDocument = updateNodeProperty(
+          document,
+          nodeId,
+          property,
+          value,
+        );
+
+        if (previewDocument !== document) {
+          const previewNode = previewDocument.nodes[nodeId];
+
+          if (previewNode) {
+            announce(getPropertyAnnouncement(previewNode, property));
+          }
+        }
+      }
+
+      setEditorState((currentState) => {
+        const currentSelectedIds = currentState.selection.selectedNodeIds;
+
+        if (
+          currentSelectedIds.length !== 1 ||
+          currentSelectedIds[0] !== nodeId
+        ) {
           return currentState;
         }
 
@@ -817,7 +929,7 @@ export function EditorShell() {
         });
       });
     },
-    [],
+    [announce, document, selection],
   );
 
   return (
@@ -873,9 +985,7 @@ export function EditorShell() {
                 padding: 0,
                 font: "inherit",
                 color: "inherit",
-
                 opacity: canUndoHistory ? 1 : 0.35,
-
                 cursor: canUndoHistory ? "pointer" : "default",
               }}
             >
@@ -899,9 +1009,7 @@ export function EditorShell() {
                 padding: 0,
                 font: "inherit",
                 color: "inherit",
-
                 opacity: canRedoHistory ? 1 : 0.35,
-
                 cursor: canRedoHistory ? "pointer" : "default",
               }}
             >
@@ -1062,6 +1170,8 @@ export function EditorShell() {
 
           <span>{nodeCount} objects</span>
         </footer>
+
+        <LiveAnnouncer announcement={liveAnnouncement} />
       </main>
     </>
   );

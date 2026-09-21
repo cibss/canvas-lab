@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 
 import {
   normalizeNodePropertyValue,
@@ -28,6 +28,16 @@ interface PropertyDraftState {
   nodeId: NodeId | null;
 
   values: PropertyDraftValues;
+}
+
+interface PropertyInputOptions {
+  min?: number;
+
+  max?: number;
+
+  suffix?: string;
+
+  describedBy?: string;
 }
 
 function formatNumber(value: number): string {
@@ -58,6 +68,14 @@ export function PropertiesInspector({
   node,
   onCommit,
 }: PropertiesInspectorProps) {
+  const positionHelpId = useId();
+
+  const sizeHelpId = useId();
+
+  const rotationHelpId = useId();
+
+  const opacityHelpId = useId();
+
   const [draftState, setDraftState] = useState<PropertyDraftState>({
     nodeId: null,
 
@@ -157,11 +175,7 @@ export function PropertiesInspector({
 
     label: string,
 
-    options?: {
-      min?: number;
-      max?: number;
-      suffix?: string;
-    },
+    options: PropertyInputOptions = {},
   ) => {
     return (
       <label className={styles.field}>
@@ -170,11 +184,13 @@ export function PropertiesInspector({
         <div className={styles.inputWrapper}>
           <input
             type="number"
+            inputMode="decimal"
             value={getInputValue(property)}
-            min={options?.min}
-            max={options?.max}
+            min={options.min}
+            max={options.max}
             step="any"
             disabled={node.locked}
+            aria-describedby={options.describedBy}
             className={styles.input}
             onFocus={(event) => {
               event.currentTarget.select();
@@ -210,7 +226,7 @@ export function PropertiesInspector({
             }}
           />
 
-          {options?.suffix ? (
+          {options.suffix ? (
             <span className={styles.suffix} aria-hidden="true">
               {options.suffix}
             </span>
@@ -230,45 +246,74 @@ export function PropertiesInspector({
         {node.locked ? <small>Locked</small> : null}
       </div>
 
-      <section className={styles.section}>
-        <div className={styles.sectionTitle}>Position</div>
+      <fieldset className={styles.section}>
+        <legend className={styles.sectionTitle}>Position</legend>
+
+        <p id={positionHelpId} className={styles.srOnly}>
+          X and Y are relative to the object&apos;s parent.
+        </p>
 
         <div className={styles.grid}>
-          {renderInput("x", "X")}
+          {renderInput("x", "X", {
+            describedBy: positionHelpId,
+          })}
 
-          {renderInput("y", "Y")}
+          {renderInput("y", "Y", {
+            describedBy: positionHelpId,
+          })}
         </div>
-      </section>
+      </fieldset>
 
-      <section className={styles.section}>
-        <div className={styles.sectionTitle}>Size</div>
+      <fieldset className={styles.section}>
+        <legend className={styles.sectionTitle}>Size</legend>
+
+        <p id={sizeHelpId} className={styles.srOnly}>
+          Width and height must be at least 1.
+        </p>
 
         <div className={styles.grid}>
           {renderInput("width", "W", {
             min: 1,
+
+            describedBy: sizeHelpId,
           })}
 
           {renderInput("height", "H", {
             min: 1,
+
+            describedBy: sizeHelpId,
           })}
         </div>
-      </section>
+      </fieldset>
 
-      <section className={styles.section}>
-        <div className={styles.sectionTitle}>Transform</div>
+      <fieldset className={styles.section}>
+        <legend className={styles.sectionTitle}>Transform</legend>
+
+        <p id={rotationHelpId} className={styles.srOnly}>
+          Rotation is measured in degrees. Values are normalized between 0 and
+          359 degrees.
+        </p>
+
+        <p id={opacityHelpId} className={styles.srOnly}>
+          Opacity is a percentage between 0 and 100.
+        </p>
 
         <div className={styles.grid}>
           {renderInput("rotation", "Rotation", {
             suffix: "°",
+
+            describedBy: rotationHelpId,
           })}
 
           {renderInput("opacity", "Opacity", {
             min: 0,
             max: 100,
             suffix: "%",
+
+            describedBy: opacityHelpId,
           })}
         </div>
-      </section>
+      </fieldset>
     </div>
   );
 }

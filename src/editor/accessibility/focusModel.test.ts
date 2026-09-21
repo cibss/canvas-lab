@@ -5,6 +5,7 @@ import { sampleDocument } from "@/editor/document/sampleDocument";
 
 import {
   createAccessibleObjectEntries,
+  getAccessibleFocusRecoveryTarget,
   getAccessibleFocusTarget,
   resolveAccessibleFocusNodeId,
 } from "./focusModel";
@@ -103,5 +104,57 @@ describe("accessibility focus model", () => {
     expect(getAccessibleFocusTarget(entries, "frame-main", "ArrowLeft")).toBe(
       "frame-main",
     );
+  });
+
+  it("recovers to the next object when the focused object disappears", () => {
+    const previousEntries = createAccessibleObjectEntries(sampleDocument);
+
+    const nextDocument = setNodeVisibility(
+      sampleDocument,
+      "rectangle-hero",
+      false,
+    );
+
+    const nextEntries = createAccessibleObjectEntries(nextDocument);
+
+    expect(
+      getAccessibleFocusRecoveryTarget(
+        previousEntries,
+        nextEntries,
+        "rectangle-hero",
+      ),
+    ).toBe("ellipse-decoration");
+  });
+
+  it("recovers to the previous available object when the last object disappears", () => {
+    const previousEntries = createAccessibleObjectEntries(sampleDocument);
+
+    const nextDocument = setNodeVisibility(sampleDocument, "text-title", false);
+
+    const nextEntries = createAccessibleObjectEntries(nextDocument);
+
+    expect(
+      getAccessibleFocusRecoveryTarget(
+        previousEntries,
+        nextEntries,
+        "text-title",
+      ),
+    ).toBe("ellipse-decoration");
+  });
+
+  it("returns null when no visible object remains", () => {
+    const previousEntries = createAccessibleObjectEntries(sampleDocument);
+
+    const nextDocument = setNodeVisibility(sampleDocument, "frame-main", false);
+
+    const nextEntries = createAccessibleObjectEntries(nextDocument);
+
+    expect(
+      getAccessibleFocusRecoveryTarget(
+        previousEntries,
+        nextEntries,
+        "frame-main",
+      ),
+    ).toBeNull();
   });
 });

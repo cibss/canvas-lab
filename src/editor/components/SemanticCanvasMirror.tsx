@@ -1,9 +1,17 @@
 "use client";
 
-import { useRef, useState, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FocusEvent,
+  type KeyboardEvent,
+} from "react";
 
 import {
   createAccessibleObjectEntries,
+  getAccessibleFocusRecoveryTarget,
   getAccessibleFocusTarget,
   resolveAccessibleFocusNodeId,
   type AccessibleNavigationKey,
@@ -40,20 +48,85 @@ export function SemanticCanvasMirror({
   selection,
   onSelectNode,
 }: SemanticCanvasMirrorProps) {
+  const entries = useMemo(
+    () => createAccessibleObjectEntries(document),
+    [document],
+  );
+
   const [focusedNodeId, setFocusedNodeId] = useState<NodeId | null>(null);
+
+  const navigatorRef = useRef<HTMLElement>(null);
+
+  const navigatorHadFocusRef = useRef(false);
 
   const itemRefs = useRef(new Map<NodeId, HTMLButtonElement>());
 
-  const entries = createAccessibleObjectEntries(document);
+  const previousEntriesRef = useRef(entries);
 
   const activeNodeId = resolveAccessibleFocusNodeId(entries, focusedNodeId);
 
   const selectedNodeIds = new Set(selection.selectedNodeIds);
 
+  useEffect(() => {
+    const handleWindowBlur = () => {
+      navigatorHadFocusRef.current = false;
+    };
+
+    window.addEventListener("blur", handleWindowBlur);
+
+    return () => {
+      window.removeEventListener("blur", handleWindowBlur);
+    };
+  }, []);
+
+  useEffect(() => {
+    const previousEntries = previousEntriesRef.current;
+
+    previousEntriesRef.current = entries;
+
+    if (!navigatorHadFocusRef.current || !focusedNodeId) {
+      return;
+    }
+
+    const focusedNodeStillExists = entries.some(
+      (entry) => entry.node.id === focusedNodeId,
+    );
+
+    if (focusedNodeStillExists) {
+      return;
+    }
+
+    const recoveryNodeId = getAccessibleFocusRecoveryTarget(
+      previousEntries,
+      entries,
+      focusedNodeId,
+    );
+
+    const frameId = window.requestAnimationFrame(() => {
+      if (recoveryNodeId) {
+        itemRefs.current.get(recoveryNodeId)?.focus({
+          preventScroll: true,
+        });
+
+        return;
+      }
+
+      navigatorRef.current?.focus({
+        preventScroll: true,
+      });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [entries, focusedNodeId]);
+
   const focusNode = (nodeId: NodeId) => {
     setFocusedNodeId(nodeId);
 
-    itemRefs.current.get(nodeId)?.focus();
+    itemRefs.current.get(nodeId)?.focus({
+      preventScroll: true,
+    });
   };
 
   const handleKeyDown = (
@@ -89,10 +162,31 @@ export function SemanticCanvasMirror({
     onSelectNode(nodeId);
   };
 
+  const handleBlurCapture = (event: FocusEvent<HTMLElement>) => {
+    const nextTarget = event.relatedTarget;
+
+    if (
+      nextTarget instanceof Node &&
+      event.currentTarget.contains(nextTarget)
+    ) {
+      return;
+    }
+
+    if (nextTarget !== null) {
+      navigatorHadFocusRef.current = false;
+    }
+  };
+
   return (
     <section
+      ref={navigatorRef}
       className={styles.semanticMirror}
       aria-labelledby="canvas-object-navigator-title"
+      tabIndex={entries.length === 0 ? 0 : -1}
+      onFocusCapture={() => {
+        navigatorHadFocusRef.current = true;
+      }}
+      onBlurCapture={handleBlurCapture}
     >
       <h2 id="canvas-object-navigator-title" className={styles.title}>
         Canvas objects

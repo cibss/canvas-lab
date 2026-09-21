@@ -74,6 +74,40 @@ export function resolveAccessibleFocusNodeId(
   return entries[0].node.id;
 }
 
+export function getAccessibleFocusRecoveryTarget(
+  previousEntries: AccessibleObjectEntry[],
+  nextEntries: AccessibleObjectEntry[],
+  focusedNodeId: NodeId | null,
+): NodeId | null {
+  if (nextEntries.length === 0) {
+    return null;
+  }
+
+  if (!focusedNodeId) {
+    return nextEntries[0].node.id;
+  }
+
+  const existingEntry = nextEntries.find(
+    (entry) => entry.node.id === focusedNodeId,
+  );
+
+  if (existingEntry) {
+    return focusedNodeId;
+  }
+
+  const previousIndex = previousEntries.findIndex(
+    (entry) => entry.node.id === focusedNodeId,
+  );
+
+  if (previousIndex < 0) {
+    return nextEntries[0].node.id;
+  }
+
+  const recoveryIndex = Math.min(previousIndex, nextEntries.length - 1);
+
+  return nextEntries[recoveryIndex].node.id;
+}
+
 export function getAccessibleFocusTarget(
   entries: AccessibleObjectEntry[],
   focusedNodeId: NodeId | null,

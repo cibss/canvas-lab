@@ -4,6 +4,7 @@ import {
   forwardRef,
   useCallback,
   useEffect,
+  useId,
   useImperativeHandle,
   useRef,
   useState,
@@ -109,6 +110,11 @@ import {
 } from "@/editor/tools/editorTool";
 
 import styles from "./EditorCanvas.module.css";
+import {
+  TextEditorExitReason,
+  shouldRestoreCanvasFocus,
+  getKeyboardEditableTextNodeId,
+} from "../accessibility/focusSafety";
 
 interface EditorCanvasProps {
   document: EditorDocument;
@@ -214,6 +220,8 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
     const onZoomChangeRef = useRef(onZoomChange);
     const requestRenderRef = useRef<() => void>(() => undefined);
     const textEditorRef = useRef<HTMLTextAreaElement>(null);
+    const canvasInstructionsId = useId();
+    const textEditorInstructionsId = useId();
     const textEditingRef = useRef<TextEditingSession | null>(null);
     const [textEditing, setTextEditing] = useState<TextEditingSession | null>(
       null,
@@ -322,8 +330,14 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
       editor.style.height = `${Math.max(minimumHeight, editor.scrollHeight)}px`;
     }, []);
 
+    const restoreCanvasFocus = useCallback(() => {
+      window.requestAnimationFrame(() => {
+        canvasRef.current?.focus({ preventScroll: true });
+      });
+    }, []);
+
     const finishTextEditing = useCallback(
-      (shouldCommit: boolean) => {
+      (shouldCommit: boolean, reason: TextEditorExitReason) => {
         const session = textEditingRef.current;
 
         if (!session) {
@@ -339,6 +353,11 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           selectionRef.current = session.transaction.before.selection;
           setTextEditingSession(null);
           requestRenderRef.current();
+
+          if (shouldRestoreCanvasFocus(reason)) {
+            restoreCanvasFocus();
+          }
+
           return;
         }
 
@@ -364,8 +383,12 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
         setTextEditingSession(null);
         requestRenderRef.current();
+
+        if (shouldRestoreCanvasFocus(reason)) {
+          restoreCanvasFocus();
+        }
       },
-      [setTextEditingSession],
+      [restoreCanvasFocus, setTextEditingSession],
     );
 
     const handleTextDraftChange = useCallback(
@@ -1510,6 +1533,20 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           return;
         }
 
+        if (event.key === "Enter" && window.document.activeElement === canvas) {
+          const editableTextNodeId = getKeyboardEditableTextNodeId(
+            documentRef.current,
+            selectionRef.current,
+            activeToolRef.current,
+          );
+
+          if (editableTextNodeId) {
+            event.preventDefault();
+            startExistingTextEditing(editableTextNodeId);
+            return;
+          }
+        }
+
         if (event.key === "Escape") {
           const nextSelection = clearSelection(selectionRef.current);
 
@@ -1587,7 +1624,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
         if (textEditingRef.current) {
           event.preventDefault();
-          finishTextEditing(true);
+          finishTextEditing(true, "canvas-pointer");
           return;
         }
 
@@ -1934,7 +1971,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
       const handleWindowBlur = () => {
         if (textEditingRef.current) {
-          finishTextEditing(true);
+          finishTextEditing(true, "window-blur");
         }
 
         isSpacePressed = false;
@@ -1999,51 +2036,92 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         className={styles.viewport}
         data-active-tool={activeTool}
       >
+        <span
+          id={canvasInstructionsId}
+          style={{
+            position: "absolute",
+            width: 1,
+            height: 1,
+            padding: 0,
+            margin: -1,
+            overflow: "hidden",
+            clip: "rect(0, 0, 0, 0)",
+            clipPath: "inset(50%)",
+            whiteSpace: "nowrap",
+            border: 0,
+          }}
+        >
+          When a text object is selected, press Enter to edit its text.
+        </span>
+
         <canvas
           ref={canvasRef}
           className={styles.canvas}
           aria-label="CanvasLab design canvas"
+          aria-describedby={canvasInstructionsId}
           tabIndex={0}
         />
 
         {textEditing ? (
-          <textarea
-            ref={textEditorRef}
-            value={textEditing.draft}
-            aria-label={textEditing.isCreating ? "Create text" : "Edit text"}
-            spellCheck={false}
-            onChange={(event) => handleTextDraftChange(event.target.value)}
-            onBlur={() => finishTextEditing(true)}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                event.preventDefault();
-                event.stopPropagation();
-                finishTextEditing(false);
-                return;
-              }
+          <>
+            <span
+              id={textEditorInstructionsId}
+              style={{
+                position: "absolute",
+                width: 1,
+                height: 1,
+                padding: 0,
+                margin: -1,
+                overflow: "hidden",
+                clip: "rect(0, 0, 0, 0)",
+                clipPath: "inset(50%)",
+                whiteSpace: "nowrap",
+                border: 0,
+              }}
+            >
+              Edit text directly. Press Command or Control plus Enter to finish.
+              Press Escape to cancel.
+            </span>
 
-              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                event.preventDefault();
-                event.stopPropagation();
-                finishTextEditing(true);
-              }
-            }}
-            style={{
-              position: "absolute",
-              zIndex: 10,
-              margin: 0,
-              padding: 0,
-              overflow: "hidden",
-              resize: "none",
-              border: "1px solid #2563eb",
-              borderRadius: 2,
-              outline: "none",
-              background: "rgba(255, 255, 255, 0.96)",
-              boxShadow: "0 0 0 1px rgba(37, 99, 235, 0.15)",
-              caretColor: "#2563eb",
-              whiteSpace: "pre-wrap",
-            }}
-          />
+            <textarea
+              ref={textEditorRef}
+              value={textEditing.draft}
+              aria-label={textEditing.isCreating ? "Create text" : "Edit text"}
+              aria-describedby={textEditorInstructionsId}
+              spellCheck={false}
+              onChange={(event) => handleTextDraftChange(event.target.value)}
+              onBlur={() => finishTextEditing(true, "blur")}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  finishTextEditing(false, "keyboard-cancel");
+                  return;
+                }
+
+                if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  finishTextEditing(true, "keyboard-commit");
+                }
+              }}
+              style={{
+                position: "absolute",
+                zIndex: 10,
+                margin: 0,
+                padding: 0,
+                overflow: "hidden",
+                resize: "none",
+                border: "1px solid #2563eb",
+                borderRadius: 2,
+                outline: "none",
+                background: "rgba(255, 255, 255, 0.96)",
+                boxShadow: "0 0 0 1px rgba(37, 99, 235, 0.15)",
+                caretColor: "#2563eb",
+                whiteSpace: "pre-wrap",
+              }}
+            />
+          </>
         ) : null}
       </div>
     );

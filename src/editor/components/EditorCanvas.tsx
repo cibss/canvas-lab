@@ -70,6 +70,7 @@ import { createViewportRenderDocument } from "@/editor/performance/viewportCulli
 import { createWorldBounds } from "@/editor/performance/worldBounds";
 import { AlignmentGuideRenderer } from "@/editor/renderer/AlignmentGuideRenderer";
 import { Canvas2DRenderer } from "@/editor/renderer/Canvas2DRenderer";
+import type { DocumentRenderer } from "@/editor/renderer/DocumentRenderer";
 import { MarqueeOverlayRenderer } from "@/editor/renderer/MarqueeOverlayRenderer";
 import { SelectionOverlayRenderer } from "@/editor/renderer/SelectionOverlayRenderer";
 import { hitTestDocument } from "@/editor/selection/hitTest";
@@ -566,7 +567,9 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         return;
       }
 
-      const documentRenderer = new Canvas2DRenderer(documentContext);
+      const documentRenderer: DocumentRenderer = new Canvas2DRenderer(
+        documentContext,
+      );
       const guideRenderer = new AlignmentGuideRenderer(overlayContext);
       const selectionRenderer = new SelectionOverlayRenderer(overlayContext);
       const marqueeRenderer = new MarqueeOverlayRenderer(overlayContext);
@@ -2421,6 +2424,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         canvas.removeEventListener("wheel", handleWheel);
 
         renderScheduler.cancel();
+        documentRenderer.dispose?.();
       };
     }, [
       applyCamera,

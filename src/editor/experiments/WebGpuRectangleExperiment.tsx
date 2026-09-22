@@ -399,7 +399,7 @@ export function WebGpuRectangleExperiment() {
       <section className={styles.card}>
         <div className={styles.header}>
           <div>
-            <p className={styles.eyebrow}>CanvasLab · Milestone 9</p>
+            <p className={styles.eyebrow}>CanvasLab</p>
 
             <h1>Canvas2D vs WebGPU</h1>
 

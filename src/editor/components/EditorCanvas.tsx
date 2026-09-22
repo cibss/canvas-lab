@@ -46,11 +46,14 @@ import { getNodeWorldGeometry } from "@/editor/document/nodeGeometry";
 import { moveNodesBy } from "@/editor/document/documentOperations";
 import type { EditorDocument, NodeId } from "@/editor/document/types";
 import {
-  requiresCanvasRender,
   requiresTextOverlaySync,
   RENDER_INVALIDATION,
   type RenderInvalidationMask,
 } from "@/editor/performance/renderInvalidation";
+import {
+  getDirtyRenderLayers,
+  type DirtyRenderLayers,
+} from "@/editor/performance/renderLayers";
 import { createRenderInvalidationScheduler } from "@/editor/performance/renderScheduler";
 import {
   createSpatialHitTestDocument,
@@ -58,6 +61,11 @@ import {
   querySpatialIndexAtPoint,
   type SpatialIndex,
 } from "@/editor/performance/spatialIndex";
+import type {
+  PerformanceWorkerRequest,
+  PerformanceWorkerResponse,
+} from "@/editor/performance/performanceWorkerProtocol";
+import { shouldOffloadSpatialIndexBuild } from "@/editor/performance/workerPolicy";
 import { createViewportRenderDocument } from "@/editor/performance/viewportCulling";
 import { createWorldBounds } from "@/editor/performance/worldBounds";
 import { AlignmentGuideRenderer } from "@/editor/renderer/AlignmentGuideRenderer";
@@ -224,6 +232,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
   ) {
     const viewportRef = useRef<HTMLDivElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
+    const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
     const cameraRef = useRef<CameraState>(createCamera());
     const documentRef = useRef<EditorDocument>(document);
     const selectionRef = useRef<SelectionState>(selection);
@@ -237,6 +246,9 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
     const requestRenderRef = useRef<(mask: RenderInvalidationMask) => void>(
       () => undefined,
     );
+    const scheduleSpatialIndexWarmupRef = useRef<
+      (document: EditorDocument) => void
+    >(() => undefined);
     const textEditorRef = useRef<HTMLTextAreaElement>(null);
     const canvasInstructionsId = useId();
     const textEditorInstructionsId = useId();
@@ -248,6 +260,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
     useEffect(() => {
       documentRef.current = document;
       requestRenderRef.current(RENDER_INVALIDATION.document);
+      scheduleSpatialIndexWarmupRef.current(document);
     }, [document]);
 
     useEffect(() => {
@@ -540,21 +553,23 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
     useEffect(() => {
       const viewport = viewportRef.current;
       const canvas = canvasRef.current;
+      const overlayCanvas = overlayCanvasRef.current;
 
-      if (!viewport || !canvas) {
+      if (!viewport || !canvas || !overlayCanvas) {
         return;
       }
 
-      const context = canvas.getContext("2d");
+      const documentContext = canvas.getContext("2d");
+      const overlayContext = overlayCanvas.getContext("2d");
 
-      if (!context) {
+      if (!documentContext || !overlayContext) {
         return;
       }
 
-      const documentRenderer = new Canvas2DRenderer(context);
-      const guideRenderer = new AlignmentGuideRenderer(context);
-      const selectionRenderer = new SelectionOverlayRenderer(context);
-      const marqueeRenderer = new MarqueeOverlayRenderer(context);
+      const documentRenderer = new Canvas2DRenderer(documentContext);
+      const guideRenderer = new AlignmentGuideRenderer(overlayContext);
+      const selectionRenderer = new SelectionOverlayRenderer(overlayContext);
+      const marqueeRenderer = new MarqueeOverlayRenderer(overlayContext);
 
       let isSpacePressed = false;
       let pointerInteraction: PointerInteraction = "idle";
@@ -596,22 +611,208 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
       let spatialIndexDocument: EditorDocument | null = null;
       let spatialIndex: SpatialIndex | null = null;
+      let spatialIndexWarmupDocument: EditorDocument | null = null;
+      let spatialIndexWarmupTimerId: number | null = null;
+      let workerRequestSequence = 0;
 
-      const getSpatialIndex = (): SpatialIndex => {
+      const pendingSpatialIndexDocuments = new Map<number, EditorDocument>();
+
+      let performanceWorker: Worker | null = null;
+      let workerCreationFailed = false;
+
+      const handlePerformanceWorkerMessage = (
+        event: MessageEvent<PerformanceWorkerResponse>,
+      ) => {
+        const response = event.data;
+        const sourceDocument = pendingSpatialIndexDocuments.get(
+          response.requestId,
+        );
+
+        pendingSpatialIndexDocuments.delete(response.requestId);
+
+        if (!sourceDocument) {
+          return;
+        }
+
+        if (spatialIndexWarmupDocument === sourceDocument) {
+          spatialIndexWarmupDocument = null;
+        }
+
+        if (
+          response.type !== "spatial-index-built" ||
+          documentRef.current !== sourceDocument
+        ) {
+          return;
+        }
+
+        spatialIndex = response.index;
+        spatialIndexDocument = sourceDocument;
+      };
+
+      const handlePerformanceWorkerError = () => {
+        pendingSpatialIndexDocuments.clear();
+        spatialIndexWarmupDocument = null;
+
+        if (spatialIndexWarmupTimerId !== null) {
+          window.clearTimeout(spatialIndexWarmupTimerId);
+
+          spatialIndexWarmupTimerId = null;
+        }
+
+        performanceWorker?.terminate();
+        performanceWorker = null;
+        workerCreationFailed = true;
+      };
+
+      const ensurePerformanceWorker = (): Worker | null => {
+        if (performanceWorker) {
+          return performanceWorker;
+        }
+
+        if (workerCreationFailed) {
+          return null;
+        }
+
+        try {
+          performanceWorker = new Worker(
+            new URL("../performance/performanceWorker.ts", import.meta.url),
+            {
+              type: "module",
+              name: "canvaslab-performance-worker",
+            },
+          );
+
+          performanceWorker.addEventListener(
+            "message",
+            handlePerformanceWorkerMessage,
+          );
+
+          performanceWorker.addEventListener(
+            "error",
+            handlePerformanceWorkerError,
+          );
+
+          return performanceWorker;
+        } catch {
+          workerCreationFailed = true;
+
+          return null;
+        }
+      };
+
+      const scheduleSpatialIndexWarmup = (
+        sourceDocument: EditorDocument,
+      ): boolean => {
+        if (
+          !shouldOffloadSpatialIndexBuild(sourceDocument) ||
+          spatialIndexDocument === sourceDocument ||
+          spatialIndexWarmupDocument === sourceDocument
+        ) {
+          return false;
+        }
+
+        const worker = ensurePerformanceWorker();
+
+        if (!worker) {
+          return false;
+        }
+
+        if (spatialIndexWarmupTimerId !== null) {
+          window.clearTimeout(spatialIndexWarmupTimerId);
+        }
+
+        spatialIndexWarmupDocument = sourceDocument;
+
+        spatialIndexWarmupTimerId = window.setTimeout(() => {
+          spatialIndexWarmupTimerId = null;
+
+          if (documentRef.current !== sourceDocument) {
+            if (spatialIndexWarmupDocument === sourceDocument) {
+              spatialIndexWarmupDocument = null;
+            }
+
+            return;
+          }
+
+          const activeWorker = ensurePerformanceWorker();
+
+          if (!activeWorker) {
+            spatialIndexWarmupDocument = null;
+
+            return;
+          }
+
+          workerRequestSequence += 1;
+
+          const requestId = workerRequestSequence;
+
+          pendingSpatialIndexDocuments.clear();
+          pendingSpatialIndexDocuments.set(requestId, sourceDocument);
+
+          const request: PerformanceWorkerRequest = {
+            type: "build-spatial-index",
+
+            requestId,
+
+            document: sourceDocument,
+          };
+
+          activeWorker.postMessage(request);
+        }, 120);
+
+        return true;
+      };
+
+      scheduleSpatialIndexWarmupRef.current = scheduleSpatialIndexWarmup;
+
+      const getSpatialIndex = (): SpatialIndex | null => {
         const currentDocument = documentRef.current;
 
-        if (!spatialIndex || spatialIndexDocument !== currentDocument) {
-          spatialIndex = createSpatialIndex(currentDocument);
-          spatialIndexDocument = currentDocument;
+        if (spatialIndex && spatialIndexDocument === currentDocument) {
+          return spatialIndex;
         }
+
+        if (
+          shouldOffloadSpatialIndexBuild(currentDocument) &&
+          scheduleSpatialIndexWarmup(currentDocument)
+        ) {
+          return null;
+        }
+
+        if (
+          spatialIndexWarmupDocument === currentDocument &&
+          performanceWorker
+        ) {
+          return null;
+        }
+
+        spatialIndex = createSpatialIndex(currentDocument);
+
+        spatialIndexDocument = currentDocument;
 
         return spatialIndex;
       };
 
       const hitTestAtWorldPoint = (worldPoint: Point): NodeId | null => {
         const currentDocument = documentRef.current;
+
+        const currentSpatialIndex = getSpatialIndex();
+
+        /*
+         * A large document may still be
+         * warming its index in the worker.
+         *
+         * Correctness wins over optimization:
+         * use the existing precise full-document
+         * hit test for this interaction, then use
+         * the worker-built index on later clicks.
+         */
+        if (!currentSpatialIndex) {
+          return hitTestDocument(currentDocument, worldPoint);
+        }
+
         const candidateNodeIds = querySpatialIndexAtPoint(
-          getSpatialIndex(),
+          currentSpatialIndex,
           worldPoint,
         );
 
@@ -627,24 +828,49 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         return hitTestDocument(candidateDocument, worldPoint);
       };
 
-      const renderCanvas = () => {
+      scheduleSpatialIndexWarmup(documentRef.current);
+
+      interface CanvasSurfaceMetrics {
+        viewportWidth: number;
+        viewportHeight: number;
+        pixelRatio: number;
+        canvasWidth: number;
+        canvasHeight: number;
+      }
+
+      const getCanvasSurfaceMetrics = (): CanvasSurfaceMetrics => {
         const viewportRect = viewport.getBoundingClientRect();
         const viewportWidth = Math.max(1, Math.floor(viewportRect.width));
         const viewportHeight = Math.max(1, Math.floor(viewportRect.height));
         const pixelRatio = window.devicePixelRatio || 1;
-        const canvasWidth = Math.round(viewportWidth * pixelRatio);
-        const canvasHeight = Math.round(viewportHeight * pixelRatio);
 
-        if (canvas.width !== canvasWidth) {
-          canvas.width = canvasWidth;
+        return {
+          viewportWidth,
+          viewportHeight,
+          pixelRatio,
+          canvasWidth: Math.round(viewportWidth * pixelRatio),
+          canvasHeight: Math.round(viewportHeight * pixelRatio),
+        };
+      };
+
+      const resizeCanvasSurface = (
+        surface: HTMLCanvasElement,
+        metrics: CanvasSurfaceMetrics,
+      ) => {
+        if (surface.width !== metrics.canvasWidth) {
+          surface.width = metrics.canvasWidth;
         }
 
-        if (canvas.height !== canvasHeight) {
-          canvas.height = canvasHeight;
+        if (surface.height !== metrics.canvasHeight) {
+          surface.height = metrics.canvasHeight;
         }
 
-        canvas.style.width = `${viewportWidth}px`;
-        canvas.style.height = `${viewportHeight}px`;
+        surface.style.width = `${metrics.viewportWidth}px`;
+        surface.style.height = `${metrics.viewportHeight}px`;
+      };
+
+      const renderDocumentLayer = (metrics: CanvasSurfaceMetrics) => {
+        resizeCanvasSurface(canvas, metrics);
 
         const editingSession = textEditingRef.current;
         const editingNode = editingSession
@@ -675,8 +901,8 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           ),
           screenToWorld(
             {
-              x: viewportWidth + VIEWPORT_CULLING_OVERSCAN,
-              y: viewportHeight + VIEWPORT_CULLING_OVERSCAN,
+              x: metrics.viewportWidth + VIEWPORT_CULLING_OVERSCAN,
+              y: metrics.viewportHeight + VIEWPORT_CULLING_OVERSCAN,
             },
             cameraRef.current,
           ),
@@ -690,19 +916,40 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         documentRenderer.render(
           viewportRenderDocument.document,
           cameraRef.current,
-          pixelRatio,
+          metrics.pixelRatio,
         );
+      };
 
-        guideRenderer.render(activeGuides, cameraRef.current, pixelRatio);
+      const clearOverlayLayer = () => {
+        overlayContext.save();
+        overlayContext.setTransform(1, 0, 0, 1, 0, 0);
+        overlayContext.clearRect(
+          0,
+          0,
+          overlayCanvas.width,
+          overlayCanvas.height,
+        );
+        overlayContext.restore();
+      };
+
+      const renderOverlayLayer = (metrics: CanvasSurfaceMetrics) => {
+        resizeCanvasSurface(overlayCanvas, metrics);
+        clearOverlayLayer();
+
+        guideRenderer.render(
+          activeGuides,
+          cameraRef.current,
+          metrics.pixelRatio,
+        );
 
         selectionRenderer.render(
           documentRef.current,
           selectionRef.current,
           cameraRef.current,
-          pixelRatio,
+          metrics.pixelRatio,
         );
 
-        marqueeRenderer.render(marquee, cameraRef.current, pixelRatio);
+        marqueeRenderer.render(marquee, cameraRef.current, metrics.pixelRatio);
       };
 
       const renderScheduler = createRenderInvalidationScheduler({
@@ -715,8 +962,18 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         },
 
         onFlush(mask) {
-          if (requiresCanvasRender(mask)) {
-            renderCanvas();
+          const dirtyLayers: DirtyRenderLayers = getDirtyRenderLayers(mask);
+
+          if (dirtyLayers.document || dirtyLayers.overlay) {
+            const metrics = getCanvasSurfaceMetrics();
+
+            if (dirtyLayers.document) {
+              renderDocumentLayer(metrics);
+            }
+
+            if (dirtyLayers.overlay) {
+              renderOverlayLayer(metrics);
+            }
           }
 
           if (requiresTextOverlaySync(mask)) {
@@ -2132,6 +2389,25 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
       return () => {
         resizeObserver.disconnect();
         requestRenderRef.current = () => undefined;
+        scheduleSpatialIndexWarmupRef.current = () => undefined;
+
+        if (spatialIndexWarmupTimerId !== null) {
+          window.clearTimeout(spatialIndexWarmupTimerId);
+        }
+
+        performanceWorker?.removeEventListener(
+          "message",
+          handlePerformanceWorkerMessage,
+        );
+
+        performanceWorker?.removeEventListener(
+          "error",
+          handlePerformanceWorkerError,
+        );
+
+        performanceWorker?.terminate();
+
+        pendingSpatialIndexDocuments.clear();
 
         window.removeEventListener("keydown", handleKeyDown);
         window.removeEventListener("keyup", handleKeyUp);
@@ -2183,6 +2459,17 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           aria-label="CanvasLab design canvas"
           aria-describedby={canvasInstructionsId}
           tabIndex={0}
+        />
+
+        <canvas
+          ref={overlayCanvasRef}
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "block",
+            pointerEvents: "none",
+          }}
         />
 
         {textEditing ? (

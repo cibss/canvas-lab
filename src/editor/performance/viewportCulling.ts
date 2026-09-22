@@ -1,92 +1,23 @@
-import type { Point } from "@/editor/camera/types";
-import { getNodeWorldGeometry } from "@/editor/document/nodeGeometry";
 import type {
   EditorDocument,
   EditorNode,
   NodeId,
 } from "@/editor/document/types";
 
-export interface WorldBounds {
-  minX: number;
+import {
+  doWorldBoundsIntersect,
+  getNodeWorldBounds,
+  type WorldBounds,
+} from "./worldBounds";
 
-  minY: number;
+export { createWorldBounds, doWorldBoundsIntersect } from "./worldBounds";
 
-  maxX: number;
-
-  maxY: number;
-}
+export type { WorldBounds } from "./worldBounds";
 
 export interface ViewportCullingResult {
   document: EditorDocument;
 
   culledNodeIds: NodeId[];
-}
-
-export function createWorldBounds(first: Point, second: Point): WorldBounds {
-  return {
-    minX: Math.min(first.x, second.x),
-
-    minY: Math.min(first.y, second.y),
-
-    maxX: Math.max(first.x, second.x),
-
-    maxY: Math.max(first.y, second.y),
-  };
-}
-
-export function doWorldBoundsIntersect(
-  first: WorldBounds,
-  second: WorldBounds,
-): boolean {
-  return !(
-    first.maxX < second.minX ||
-    first.minX > second.maxX ||
-    first.maxY < second.minY ||
-    first.minY > second.maxY
-  );
-}
-
-function getNodeWorldBounds(
-  document: EditorDocument,
-  nodeId: NodeId,
-): WorldBounds | null {
-  const geometry = getNodeWorldGeometry(document, nodeId);
-
-  if (!geometry) {
-    return null;
-  }
-
-  const corners = [
-    geometry.corners.northWest,
-    geometry.corners.northEast,
-    geometry.corners.southEast,
-    geometry.corners.southWest,
-  ];
-
-  let minX = Number.POSITIVE_INFINITY;
-
-  let minY = Number.POSITIVE_INFINITY;
-
-  let maxX = Number.NEGATIVE_INFINITY;
-
-  let maxY = Number.NEGATIVE_INFINITY;
-
-  for (const corner of corners) {
-    minX = Math.min(minX, corner.x);
-
-    minY = Math.min(minY, corner.y);
-
-    maxX = Math.max(maxX, corner.x);
-
-    maxY = Math.max(maxY, corner.y);
-  }
-
-  return {
-    minX,
-    minY,
-    maxX,
-    maxY,
-  };
 }
 
 export function createViewportRenderDocument(
@@ -116,6 +47,7 @@ export function createViewportRenderDocument(
 
     nextNodes[nodeId] = {
       ...node,
+
       visible: false,
     };
 
@@ -137,12 +69,6 @@ export function createViewportRenderDocument(
 
     const nodeBounds = getNodeWorldBounds(document, nodeId);
 
-    /*
-     * If geometry cannot be resolved,
-     * stay conservative and keep the
-     * node rather than accidentally
-     * removing visible content.
-     */
     const intersectsViewport = nodeBounds
       ? doWorldBoundsIntersect(nodeBounds, viewportBounds)
       : true;
@@ -155,16 +81,6 @@ export function createViewportRenderDocument(
       return intersectsViewport;
     }
 
-    /*
-     * A clipped frame fully outside
-     * the viewport guarantees that
-     * none of its descendants can
-     * produce visible pixels.
-     *
-     * We can therefore prune the
-     * complete subtree by hiding only
-     * the frame in the render document.
-     */
     if (node.clipContent && !intersectsViewport) {
       cullNode(nodeId, node);
 
@@ -179,19 +95,6 @@ export function createViewportRenderDocument(
       }
     }
 
-    /*
-     * Non-clipping frames require
-     * special treatment.
-     *
-     * The frame itself may be outside
-     * the viewport while one of its
-     * children extends into it.
-     *
-     * In that case the frame must stay
-     * available so the renderer can
-     * traverse its children and preserve
-     * the parent transform.
-     */
     const shouldKeepFrame = intersectsViewport || hasVisibleDescendant;
 
     if (!shouldKeepFrame) {

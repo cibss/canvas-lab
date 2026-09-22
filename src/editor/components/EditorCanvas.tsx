@@ -53,9 +53,13 @@ import {
 } from "@/editor/performance/renderInvalidation";
 import { createRenderInvalidationScheduler } from "@/editor/performance/renderScheduler";
 import {
-  createViewportRenderDocument,
-  createWorldBounds,
-} from "@/editor/performance/viewportCulling";
+  createSpatialHitTestDocument,
+  createSpatialIndex,
+  querySpatialIndexAtPoint,
+  type SpatialIndex,
+} from "@/editor/performance/spatialIndex";
+import { createViewportRenderDocument } from "@/editor/performance/viewportCulling";
+import { createWorldBounds } from "@/editor/performance/worldBounds";
 import { AlignmentGuideRenderer } from "@/editor/renderer/AlignmentGuideRenderer";
 import { Canvas2DRenderer } from "@/editor/renderer/Canvas2DRenderer";
 import { MarqueeOverlayRenderer } from "@/editor/renderer/MarqueeOverlayRenderer";
@@ -589,6 +593,39 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
       let marqueeBaseSelection: SelectionState = selectionRef.current;
       let marqueeAdditive = false;
       let marqueeStartClientPosition: Point | null = null;
+
+      let spatialIndexDocument: EditorDocument | null = null;
+      let spatialIndex: SpatialIndex | null = null;
+
+      const getSpatialIndex = (): SpatialIndex => {
+        const currentDocument = documentRef.current;
+
+        if (!spatialIndex || spatialIndexDocument !== currentDocument) {
+          spatialIndex = createSpatialIndex(currentDocument);
+          spatialIndexDocument = currentDocument;
+        }
+
+        return spatialIndex;
+      };
+
+      const hitTestAtWorldPoint = (worldPoint: Point): NodeId | null => {
+        const currentDocument = documentRef.current;
+        const candidateNodeIds = querySpatialIndexAtPoint(
+          getSpatialIndex(),
+          worldPoint,
+        );
+
+        if (candidateNodeIds.length === 0) {
+          return null;
+        }
+
+        const candidateDocument = createSpatialHitTestDocument(
+          currentDocument,
+          candidateNodeIds,
+        );
+
+        return hitTestDocument(candidateDocument, worldPoint);
+      };
 
       const renderCanvas = () => {
         const viewportRect = viewport.getBoundingClientRect();
@@ -1815,7 +1852,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           }
         }
 
-        const hitNodeId = hitTestDocument(documentRef.current, worldPoint);
+        const hitNodeId = hitTestAtWorldPoint(worldPoint);
 
         if (hitNodeId && event.shiftKey) {
           applyRuntimeSelection(
@@ -1858,7 +1895,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         }
 
         const worldPoint = getWorldPoint(event);
-        const hitNodeId = hitTestDocument(documentRef.current, worldPoint);
+        const hitNodeId = hitTestAtWorldPoint(worldPoint);
 
         if (!hitNodeId) {
           return;

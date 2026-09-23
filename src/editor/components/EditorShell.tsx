@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import {
   useCallback,
   useEffect,
@@ -1008,20 +1010,50 @@ export function EditorShell() {
       <main className={styles.shell}>
         <header className={styles.topBar}>
           <div className={styles.brandSection}>
-            <span className={styles.logo}>◇</span>
+            <span className={styles.logo} aria-hidden="true">
+              ◇
+            </span>
 
-            <strong className={styles.brand}>CanvasLab</strong>
+            <div className={styles.brandCopy}>
+              <strong className={styles.brand}>CanvasLab</strong>
 
-            <nav className={styles.menu} aria-label="Application menu">
-              <span>File</span>
+              <span className={styles.brandMeta}>
+                Visual editor systems lab
+              </span>
+            </div>
 
-              <span>Edit</span>
-
-              <span>View</span>
-            </nav>
+            <span className={styles.rendererBadge}>Canvas2D</span>
           </div>
 
           <div className={styles.topBarActions}>
+            <Link
+              href="/work/canvas-lab/gpu-experiment"
+              className={styles.experimentLink}
+              aria-label="Open WebGPU rendering experiment"
+              title="Compare Canvas2D and WebGPU rendering"
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M8 3h8" />
+                <path d="M10 3v5l-5.5 9.2A2.5 2.5 0 006.7 21h10.6a2.5 2.5 0 002.2-3.8L14 8V3" />
+                <path d="M8 15h8" />
+              </svg>
+
+              <span>WebGPU Experiment</span>
+
+              <span className={styles.experimentBadge}>Lab</span>
+            </Link>
+
+            <span className={styles.topBarDivider} aria-hidden="true" />
             <button
               type="button"
               className={styles.historyAction}
@@ -1033,15 +1065,6 @@ export function EditorShell() {
                   ? `Undo ${undoCommand.label} (Cmd/Ctrl+Z)`
                   : "Nothing to undo"
               }
-              style={{
-                border: 0,
-                background: "transparent",
-                padding: 0,
-                font: "inherit",
-                color: "inherit",
-                opacity: canUndoHistory ? 1 : 0.35,
-                cursor: canUndoHistory ? "pointer" : "default",
-              }}
             >
               ↶
             </button>
@@ -1057,15 +1080,6 @@ export function EditorShell() {
                   ? `Redo ${redoCommand.label} (Cmd/Ctrl+Shift+Z)`
                   : "Nothing to redo"
               }
-              style={{
-                border: 0,
-                background: "transparent",
-                padding: 0,
-                font: "inherit",
-                color: "inherit",
-                opacity: canRedoHistory ? 1 : 0.35,
-                cursor: canRedoHistory ? "pointer" : "default",
-              }}
             >
               ↷
             </button>

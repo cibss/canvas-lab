@@ -31,45 +31,146 @@
 
 .logo {
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
-  font-size: 18px;
+  width: 26px;
+  height: 26px;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #2563eb;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.brandCopy {
+  display: grid;
+  min-width: 0;
+  line-height: 1.05;
 }
 
 .brand {
-  margin-right: 16px;
+  color: #18181b;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
-.menu {
-  display: flex;
+.brandMeta {
+  margin-top: 3px;
+  overflow: hidden;
+  color: #a1a1aa;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rendererBadge {
+  display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
-  gap: 18px;
-  color: #52525b;
-}
-
-.menu span {
-  cursor: default;
+  height: 20px;
+  margin-left: 4px;
+  border: 1px solid #e4e4e7;
+  border-radius: 999px;
+  padding: 0 7px;
+  background: #fafafa;
+  color: #71717a;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .topBarActions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   color: #52525b;
+}
+
+.experimentLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  border: 1px solid #dbeafe;
+  border-radius: 7px;
+  padding: 0 9px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration: none;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease,
+    color 120ms ease;
+}
+
+.experimentLink:hover {
+  border-color: #bfdbfe;
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.experimentLink:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+.experimentBadge {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  border-radius: 999px;
+  padding: 0 5px;
+  background: #ffffff;
+  color: #2563eb;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.topBarDivider {
+  width: 1px;
+  height: 22px;
+  margin: 0 2px;
+  background: #e4e4e7;
 }
 
 .historyAction {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 4px;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 5px;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
   font-size: 16px;
+  cursor: pointer;
+}
+
+.historyAction:hover:not(:disabled) {
+  background: #f4f4f5;
+  color: #18181b;
+}
+
+.historyAction:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 1px;
+}
+
+.historyAction:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 .zoomControls {

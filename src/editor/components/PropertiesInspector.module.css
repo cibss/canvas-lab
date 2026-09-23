@@ -53,23 +53,20 @@
 }
 
 .section {
-  display: flex;
-
   min-width: 0;
 
   margin: 0;
-  padding: 16px;
-
-  flex-direction: column;
-
-  gap: 10px;
+  padding: 0 16px 16px;
 
   border: 0;
   border-bottom: 1px solid #e4e4e7;
 }
 
 .sectionTitle {
-  padding: 0;
+  display: block;
+
+  margin: 0;
+  padding: 16px 0 0;
 
   color: #71717a;
 
@@ -79,6 +76,17 @@
   letter-spacing: 0.04em;
 
   text-transform: uppercase;
+}
+
+.sectionBody {
+  display: flex;
+
+  min-width: 0;
+  margin-top: 14px;
+
+  flex-direction: column;
+
+  gap: 10px;
 }
 
 .grid {

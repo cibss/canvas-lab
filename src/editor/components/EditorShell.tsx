@@ -39,7 +39,7 @@ import {
   updateNodeProperty,
   type EditableNodeProperty,
 } from "@/editor/document/nodeProperties";
-import { sampleDocument } from "@/editor/document/sampleDocument";
+import { showcaseDocument } from "@/editor/document/showcaseDocument";
 import type {
   EditorDocument,
   EditorNode,
@@ -456,7 +456,7 @@ export function EditorShell() {
   const announcementSequenceRef = useRef(0);
 
   const [editorState, setEditorState] = useState(() =>
-    createEditorState(sampleDocument, createSelectionState()),
+    createEditorState(showcaseDocument, createSelectionState()),
   );
 
   const [zoomPercentage, setZoomPercentage] = useState(100);

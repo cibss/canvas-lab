@@ -5,7 +5,13 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: #e4e4e7;
+  background-color: #dfe4ec;
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    rgb(100 116 139 / 22%) 1px,
+    transparent 0
+  );
+  background-size: 20px 20px;
   user-select: none;
 }
 

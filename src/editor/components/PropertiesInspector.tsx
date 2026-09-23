@@ -305,69 +305,71 @@ export function PropertiesInspector({
         <fieldset className={styles.section}>
           <legend className={styles.sectionTitle}>Appearance</legend>
 
-          <p id={fillHelpId} className={styles.srOnly}>
-            Fill color accepts three or six digit hexadecimal colors.
-          </p>
+          <div className={styles.sectionBody}>
+            <p id={fillHelpId} className={styles.srOnly}>
+              Fill color accepts three or six digit hexadecimal colors.
+            </p>
 
-          <div className={styles.colorField}>
-            <span className={styles.fieldLabel}>Fill</span>
+            <div className={styles.colorField}>
+              <span className={styles.fieldLabel}>Fill</span>
 
-            <div className={styles.colorControl}>
-              <label className={styles.colorSwatchLabel}>
-                <span className={styles.srOnly}>Choose fill color</span>
+              <div className={styles.colorControl}>
+                <label className={styles.colorSwatchLabel}>
+                  <span className={styles.srOnly}>Choose fill color</span>
+
+                  <input
+                    type="color"
+                    value={modelFillColor}
+                    disabled={node.locked}
+                    className={styles.colorPicker}
+                    onChange={(event) => {
+                      onFillColorCommit(node.id, event.currentTarget.value);
+                    }}
+                  />
+                </label>
 
                 <input
-                  type="color"
-                  value={modelFillColor}
+                  type="text"
+                  value={fillInputValue}
                   disabled={node.locked}
-                  className={styles.colorPicker}
+                  aria-label="Fill color hex value"
+                  aria-describedby={fillHelpId}
+                  className={styles.colorTextInput}
+                  spellCheck={false}
+                  onFocus={(event) => {
+                    event.currentTarget.select();
+                  }}
                   onChange={(event) => {
-                    onFillColorCommit(node.id, event.currentTarget.value);
+                    setFillDraftState({
+                      nodeId: node.id,
+                      value: event.currentTarget.value,
+                    });
+                  }}
+                  onBlur={() => {
+                    if (cancelFillBlurRef.current) {
+                      cancelFillBlurRef.current = false;
+
+                      return;
+                    }
+
+                    commitFillColor();
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      event.currentTarget.blur();
+
+                      return;
+                    }
+
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      cancelFillColor();
+                      event.currentTarget.blur();
+                    }
                   }}
                 />
-              </label>
-
-              <input
-                type="text"
-                value={fillInputValue}
-                disabled={node.locked}
-                aria-label="Fill color hex value"
-                aria-describedby={fillHelpId}
-                className={styles.colorTextInput}
-                spellCheck={false}
-                onFocus={(event) => {
-                  event.currentTarget.select();
-                }}
-                onChange={(event) => {
-                  setFillDraftState({
-                    nodeId: node.id,
-                    value: event.currentTarget.value,
-                  });
-                }}
-                onBlur={() => {
-                  if (cancelFillBlurRef.current) {
-                    cancelFillBlurRef.current = false;
-
-                    return;
-                  }
-
-                  commitFillColor();
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    event.currentTarget.blur();
-
-                    return;
-                  }
-
-                  if (event.key === "Escape") {
-                    event.preventDefault();
-                    cancelFillColor();
-                    event.currentTarget.blur();
-                  }
-                }}
-              />
+              </div>
             </div>
           </div>
         </fieldset>
@@ -376,69 +378,75 @@ export function PropertiesInspector({
       <fieldset className={styles.section}>
         <legend className={styles.sectionTitle}>Position</legend>
 
-        <p id={positionHelpId} className={styles.srOnly}>
-          X and Y are relative to the object&apos;s parent.
-        </p>
+        <div className={styles.sectionBody}>
+          <p id={positionHelpId} className={styles.srOnly}>
+            X and Y are relative to the object&apos;s parent.
+          </p>
 
-        <div className={styles.grid}>
-          {renderInput("x", "X", {
-            describedBy: positionHelpId,
-          })}
+          <div className={styles.grid}>
+            {renderInput("x", "X", {
+              describedBy: positionHelpId,
+            })}
 
-          {renderInput("y", "Y", {
-            describedBy: positionHelpId,
-          })}
+            {renderInput("y", "Y", {
+              describedBy: positionHelpId,
+            })}
+          </div>
         </div>
       </fieldset>
 
       <fieldset className={styles.section}>
         <legend className={styles.sectionTitle}>Size</legend>
 
-        <p id={sizeHelpId} className={styles.srOnly}>
-          Width and height must be at least 1.
-        </p>
+        <div className={styles.sectionBody}>
+          <p id={sizeHelpId} className={styles.srOnly}>
+            Width and height must be at least 1.
+          </p>
 
-        <div className={styles.grid}>
-          {renderInput("width", "W", {
-            min: 1,
+          <div className={styles.grid}>
+            {renderInput("width", "W", {
+              min: 1,
 
-            describedBy: sizeHelpId,
-          })}
+              describedBy: sizeHelpId,
+            })}
 
-          {renderInput("height", "H", {
-            min: 1,
+            {renderInput("height", "H", {
+              min: 1,
 
-            describedBy: sizeHelpId,
-          })}
+              describedBy: sizeHelpId,
+            })}
+          </div>
         </div>
       </fieldset>
 
       <fieldset className={styles.section}>
         <legend className={styles.sectionTitle}>Transform</legend>
 
-        <p id={rotationHelpId} className={styles.srOnly}>
-          Rotation is measured in degrees. Values are normalized between 0 and
-          359 degrees.
-        </p>
+        <div className={styles.sectionBody}>
+          <p id={rotationHelpId} className={styles.srOnly}>
+            Rotation is measured in degrees. Values are normalized between 0 and
+            359 degrees.
+          </p>
 
-        <p id={opacityHelpId} className={styles.srOnly}>
-          Opacity is a percentage between 0 and 100.
-        </p>
+          <p id={opacityHelpId} className={styles.srOnly}>
+            Opacity is a percentage between 0 and 100.
+          </p>
 
-        <div className={styles.grid}>
-          {renderInput("rotation", "Rotation", {
-            suffix: "°",
+          <div className={styles.grid}>
+            {renderInput("rotation", "Rotation", {
+              suffix: "°",
 
-            describedBy: rotationHelpId,
-          })}
+              describedBy: rotationHelpId,
+            })}
 
-          {renderInput("opacity", "Opacity", {
-            min: 0,
-            max: 100,
-            suffix: "%",
+            {renderInput("opacity", "Opacity", {
+              min: 0,
+              max: 100,
+              suffix: "%",
 
-            describedBy: opacityHelpId,
-          })}
+              describedBy: opacityHelpId,
+            })}
+          </div>
         </div>
       </fieldset>
     </div>

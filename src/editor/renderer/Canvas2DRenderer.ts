@@ -1,4 +1,5 @@
 import type { CameraState } from "@/editor/camera/types";
+import { DEFAULT_TEXT_LINE_HEIGHT } from "@/editor/document/textEditing";
 import type {
   EditorDocument,
   EditorNode,
@@ -194,7 +195,13 @@ export class Canvas2DRenderer {
       textX = node.width;
     }
 
-    this.context.fillText(node.content, textX, 0, node.width);
+    const lines = node.content.replace(/\r\n/g, "\n").split("\n");
+
+    const lineHeight = node.fontSize * DEFAULT_TEXT_LINE_HEIGHT;
+
+    lines.forEach((line, index) => {
+      this.context.fillText(line, textX, index * lineHeight, node.width);
+    });
   }
 
   private createRoundedRectanglePath(

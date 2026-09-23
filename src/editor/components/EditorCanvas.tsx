@@ -35,15 +35,18 @@ import { getDocumentBounds } from "@/editor/document/documentBounds";
 import {
   createShapeNodeId,
   getShapeCreationBounds,
-  insertRootShape,
+  insertShape,
 } from "@/editor/document/shapeCreation";
 import {
   createTextNodeId,
-  insertRootText,
+  insertText,
   updateTextNodeContent,
 } from "@/editor/document/textEditing";
 import { getNodeWorldGeometry } from "@/editor/document/nodeGeometry";
-import { moveNodesBy } from "@/editor/document/documentOperations";
+import {
+  moveNodesBy,
+  reparentNodeByWorldContainment,
+} from "@/editor/document/documentOperations";
 import type { EditorDocument, NodeId } from "@/editor/document/types";
 import {
   requiresTextOverlaySync,
@@ -1447,7 +1450,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
         );
 
         const nodeId = createTextNodeId(documentRef.current);
-        const nextDocument = insertRootText(
+        const nextDocument = insertText(
           documentRef.current,
           nodeId,
           worldPoint,
@@ -1578,7 +1581,7 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
           },
         );
 
-        documentRef.current = insertRootShape(
+        documentRef.current = insertShape(
           shapeCreationBaseDocument,
           shapeCreationTool,
           shapeCreationNodeId,
@@ -2286,6 +2289,15 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 
         if (pointerInteraction === "dragging-node") {
           updateNodeDrag(event);
+
+          const draggedNodeId = dragNodeIds[0];
+
+          if (draggedNodeId) {
+            documentRef.current = reparentNodeByWorldContainment(
+              documentRef.current,
+              draggedNodeId,
+            );
+          }
         }
 
         if (pointerInteraction === "dragging-selection") {

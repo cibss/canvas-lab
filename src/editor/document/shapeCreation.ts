@@ -1,4 +1,8 @@
 import type { Bounds, Point } from "@/editor/camera/types";
+import {
+  findFrameContainingWorldBounds,
+  getChildPlacementForWorldBounds,
+} from "@/editor/document/frameParenting";
 import type {
   EditorDocument,
   EditorNode,
@@ -118,25 +122,33 @@ function createShapeNode(
   nodeId: NodeId,
 
   bounds: Bounds,
+
+  parentId: NodeId | null = null,
 ): EditorNode {
   const normalizedBounds = normalizeBounds(bounds);
+
+  const placement = getChildPlacementForWorldBounds(
+    document,
+    parentId,
+    normalizedBounds,
+  );
 
   const common = {
     id: nodeId,
 
     name: createShapeName(document, tool),
 
-    parentId: null,
+    parentId: placement.parentId,
 
-    x: normalizedBounds.x,
+    x: placement.x,
 
-    y: normalizedBounds.y,
+    y: placement.y,
 
     width: normalizedBounds.width,
 
     height: normalizedBounds.height,
 
-    rotation: 0,
+    rotation: placement.rotation,
 
     opacity: 1,
 
@@ -212,6 +224,66 @@ export function insertRootShape(
 
     nodes: {
       ...document.nodes,
+
+      [nodeId]: node,
+    },
+  };
+}
+
+export function insertShape(
+  document: EditorDocument,
+
+  tool: ShapeEditorTool,
+
+  nodeId: NodeId,
+
+  bounds: Bounds,
+): EditorDocument {
+  if (document.nodes[nodeId]) {
+    return document;
+  }
+
+  const normalizedBounds = normalizeBounds(bounds);
+
+  const parentId = findFrameContainingWorldBounds(document, normalizedBounds);
+
+  const node = createShapeNode(
+    document,
+    tool,
+    nodeId,
+    normalizedBounds,
+    parentId,
+  );
+
+  if (!parentId) {
+    return {
+      ...document,
+
+      rootNodeIds: [...document.rootNodeIds, nodeId],
+
+      nodes: {
+        ...document.nodes,
+        [nodeId]: node,
+      },
+    };
+  }
+
+  const parent = document.nodes[parentId];
+
+  if (!parent || parent.type !== "frame") {
+    return document;
+  }
+
+  return {
+    ...document,
+
+    nodes: {
+      ...document.nodes,
+
+      [parentId]: {
+        ...parent,
+        childIds: [...parent.childIds, nodeId],
+      },
 
       [nodeId]: node,
     },

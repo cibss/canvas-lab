@@ -1,6 +1,11 @@
 import type { Bounds, Point } from "@/editor/camera/types";
 import {
+  findFrameContainingWorldNode,
+  getChildPlacementForWorldBounds,
+} from "@/editor/document/frameParenting";
+import {
   getNodeParentWorldTransform,
+  getNodeWorldGeometry,
   getNodeWorldPosition,
 } from "@/editor/document/nodeGeometry";
 import {
@@ -100,6 +105,94 @@ export function moveNodesBy(
 
   return {
     ...document,
+    nodes: nextNodes,
+  };
+}
+
+export function reparentNodeByWorldContainment(
+  document: EditorDocument,
+  nodeId: NodeId,
+): EditorDocument {
+  const node = document.nodes[nodeId];
+
+  if (!node || node.locked) {
+    return document;
+  }
+
+  const geometry = getNodeWorldGeometry(document, nodeId);
+
+  if (!geometry) {
+    return document;
+  }
+
+  const nextParentId = findFrameContainingWorldNode(document, nodeId);
+
+  if (nextParentId === node.parentId) {
+    return document;
+  }
+
+  const placement = getChildPlacementForWorldBounds(
+    document,
+    nextParentId,
+    {
+      x: geometry.center.x - node.width / 2,
+      y: geometry.center.y - node.height / 2,
+      width: node.width,
+      height: node.height,
+    },
+    geometry.rotation,
+  );
+
+  const nextNodes = {
+    ...document.nodes,
+  };
+
+  if (node.parentId) {
+    const previousParent = document.nodes[node.parentId];
+
+    if (previousParent && previousParent.type === "frame") {
+      nextNodes[previousParent.id] = {
+        ...previousParent,
+        childIds: previousParent.childIds.filter(
+          (childId) => childId !== nodeId,
+        ),
+      };
+    }
+  }
+
+  let nextRootNodeIds = document.rootNodeIds.filter(
+    (rootNodeId) => rootNodeId !== nodeId,
+  );
+
+  if (placement.parentId) {
+    const nextParent = nextNodes[placement.parentId];
+
+    if (!nextParent || nextParent.type !== "frame") {
+      return document;
+    }
+
+    nextNodes[nextParent.id] = {
+      ...nextParent,
+      childIds: [
+        ...nextParent.childIds.filter((childId) => childId !== nodeId),
+        nodeId,
+      ],
+    };
+  } else {
+    nextRootNodeIds = [...nextRootNodeIds, nodeId];
+  }
+
+  nextNodes[nodeId] = {
+    ...node,
+    parentId: placement.parentId,
+    x: placement.x,
+    y: placement.y,
+    rotation: placement.rotation,
+  };
+
+  return {
+    ...document,
+    rootNodeIds: nextRootNodeIds,
     nodes: nextNodes,
   };
 }

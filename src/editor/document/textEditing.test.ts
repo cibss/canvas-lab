@@ -6,6 +6,7 @@ import {
   DEFAULT_TEXT_HEIGHT,
   DEFAULT_TEXT_WIDTH,
   insertRootText,
+  insertText,
   updateTextNodeContent,
 } from "./textEditing";
 
@@ -53,6 +54,48 @@ describe("text editing", () => {
     expect(result.rootNodeIds).toContain(nodeId);
 
     expect(sampleDocument.nodes[nodeId]).toBeUndefined();
+  });
+
+  it("parents text created inside a frame", () => {
+    const nodeId = createTextNodeId(sampleDocument);
+
+    const result = insertText(sampleDocument, nodeId, {
+      x: 300,
+      y: 300,
+    });
+
+    const node = result.nodes[nodeId];
+
+    expect(node.type).toBe("text");
+
+    if (node.type !== "text") {
+      return;
+    }
+
+    expect(node.parentId).toBe("frame-main");
+    expect(result.rootNodeIds).not.toContain(nodeId);
+
+    const frame = result.nodes["frame-main"];
+
+    expect(frame.type).toBe("frame");
+
+    if (frame.type !== "frame") {
+      return;
+    }
+
+    expect(frame.childIds).toContain(nodeId);
+  });
+
+  it("keeps text created outside frames at the root", () => {
+    const nodeId = createTextNodeId(sampleDocument);
+
+    const result = insertText(sampleDocument, nodeId, {
+      x: 1500,
+      y: 900,
+    });
+
+    expect(result.nodes[nodeId].parentId).toBeNull();
+    expect(result.rootNodeIds).toContain(nodeId);
   });
 
   it("updates text content immutably", () => {

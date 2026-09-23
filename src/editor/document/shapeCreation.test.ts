@@ -5,6 +5,7 @@ import {
   createShapeNodeId,
   getShapeCreationBounds,
   insertRootShape,
+  insertShape,
 } from "./shapeCreation";
 
 describe("shape creation", () => {
@@ -105,6 +106,46 @@ describe("shape creation", () => {
     expect(result.rootNodeIds).toContain(nodeId);
 
     expect(sampleDocument.nodes[nodeId]).toBeUndefined();
+  });
+
+  it("parents a created shape when its bounds fit inside a frame", () => {
+    const nodeId = createShapeNodeId(sampleDocument, "rectangle");
+
+    const result = insertShape(sampleDocument, "rectangle", nodeId, {
+      x: 250,
+      y: 220,
+      width: 160,
+      height: 90,
+    });
+
+    const node = result.nodes[nodeId];
+
+    expect(node.parentId).toBe("frame-main");
+    expect(result.rootNodeIds).not.toContain(nodeId);
+
+    const frame = result.nodes["frame-main"];
+
+    expect(frame.type).toBe("frame");
+
+    if (frame.type !== "frame") {
+      return;
+    }
+
+    expect(frame.childIds).toContain(nodeId);
+  });
+
+  it("keeps a created shape at the root when it does not fit inside a frame", () => {
+    const nodeId = createShapeNodeId(sampleDocument, "rectangle");
+
+    const result = insertShape(sampleDocument, "rectangle", nodeId, {
+      x: 1300,
+      y: 760,
+      width: 160,
+      height: 90,
+    });
+
+    expect(result.nodes[nodeId].parentId).toBeNull();
+    expect(result.rootNodeIds).toContain(nodeId);
   });
 
   it("creates an empty frame", () => {

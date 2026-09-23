@@ -127,6 +127,51 @@ describe("Canvas2DRenderer", () => {
     );
   });
 
+  it("renders multiline text on separate baselines", () => {
+    const context = createMockContext();
+
+    const renderer = new Canvas2DRenderer(
+      context as unknown as CanvasRenderingContext2D,
+    );
+
+    const textNode = sampleDocument.nodes["text-title"];
+
+    expect(textNode.type).toBe("text");
+
+    if (textNode.type !== "text") {
+      return;
+    }
+
+    const document = {
+      ...sampleDocument,
+      nodes: {
+        ...sampleDocument.nodes,
+        "text-title": {
+          ...textNode,
+          content: "Design systems\nthat scale",
+        },
+      },
+    };
+
+    renderer.render(document, defaultCamera);
+
+    expect(context.fillText).toHaveBeenNthCalledWith(
+      1,
+      "Design systems",
+      0,
+      0,
+      560,
+    );
+
+    expect(context.fillText).toHaveBeenNthCalledWith(
+      2,
+      "that scale",
+      0,
+      60,
+      560,
+    );
+  });
+
   it("isolates rendering state", () => {
     const context = createMockContext();
 

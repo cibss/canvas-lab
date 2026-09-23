@@ -4,6 +4,7 @@ import {
   deleteNodes,
   moveNodeBy,
   moveNodesBy,
+  reparentNodeByWorldContainment,
   resizeNodeToWorldBounds,
 } from "./documentOperations";
 import { sampleDocument } from "./sampleDocument";
@@ -203,6 +204,131 @@ describe("document operations", () => {
       expect(result.nodes["text-title"].x).toBe(122);
 
       expect(result.nodes["text-title"].y).toBe(172);
+    });
+  });
+
+  describe("reparentNodeByWorldContainment", () => {
+    it("moves a root node into a frame while preserving world geometry", () => {
+      const document: EditorDocument = {
+        ...sampleDocument,
+        rootNodeIds: [...sampleDocument.rootNodeIds, "rectangle-root"],
+        nodes: {
+          ...sampleDocument.nodes,
+          "rectangle-root": {
+            id: "rectangle-root",
+            type: "rectangle",
+            name: "Root Rectangle",
+            parentId: null,
+            x: 300,
+            y: 500,
+            width: 120,
+            height: 80,
+            rotation: 15,
+            opacity: 1,
+            visible: true,
+            locked: false,
+            fill: {
+              type: "solid",
+              color: "#60a5fa",
+            },
+            cornerRadius: 8,
+          },
+        },
+      };
+
+      const before = document.nodes["rectangle-root"];
+      const result = reparentNodeByWorldContainment(document, "rectangle-root");
+      const after = result.nodes["rectangle-root"];
+
+      expect(after.parentId).toBe("frame-main");
+      expect(result.rootNodeIds).not.toContain("rectangle-root");
+
+      expect(after.rotation).toBeCloseTo(before.rotation);
+
+      const frame = result.nodes["frame-main"];
+
+      expect(frame.type).toBe("frame");
+
+      if (frame.type !== "frame") {
+        return;
+      }
+
+      expect(frame.childIds).toContain("rectangle-root");
+    });
+
+    it("moves a child out to the root when it no longer fits in its frame", () => {
+      const movedDocument = moveNodeBy(sampleDocument, "text-title", {
+        x: 1400,
+        y: 0,
+      });
+
+      const result = reparentNodeByWorldContainment(
+        movedDocument,
+        "text-title",
+      );
+
+      expect(result.nodes["text-title"].parentId).toBeNull();
+      expect(result.rootNodeIds).toContain("text-title");
+
+      const frame = result.nodes["frame-main"];
+
+      expect(frame.type).toBe("frame");
+
+      if (frame.type !== "frame") {
+        return;
+      }
+
+      expect(frame.childIds).not.toContain("text-title");
+    });
+
+    it("does not create a frame hierarchy cycle", () => {
+      const document: EditorDocument = {
+        schemaVersion: 1,
+        id: "nested-frames",
+        name: "Nested Frames",
+        rootNodeIds: ["outer"],
+        nodes: {
+          outer: {
+            id: "outer",
+            type: "frame",
+            name: "Outer",
+            parentId: null,
+            x: 100,
+            y: 100,
+            width: 500,
+            height: 500,
+            rotation: 0,
+            opacity: 1,
+            visible: true,
+            locked: false,
+            childIds: ["inner"],
+            fill: null,
+            clipContent: false,
+          },
+          inner: {
+            id: "inner",
+            type: "frame",
+            name: "Inner",
+            parentId: "outer",
+            x: 100,
+            y: 100,
+            width: 200,
+            height: 200,
+            rotation: 0,
+            opacity: 1,
+            visible: true,
+            locked: false,
+            childIds: [],
+            fill: null,
+            clipContent: false,
+          },
+        },
+      };
+
+      const result = reparentNodeByWorldContainment(document, "outer");
+
+      expect(result).toBe(document);
+      expect(result.nodes.outer.parentId).toBeNull();
     });
   });
 

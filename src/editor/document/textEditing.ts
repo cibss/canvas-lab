@@ -1,4 +1,8 @@
 import type { Point } from "@/editor/camera/types";
+import {
+  findFrameContainingWorldPoint,
+  getChildPlacementForWorldBounds,
+} from "@/editor/document/frameParenting";
 
 import type { EditorDocument, NodeId, TextNode } from "./types";
 
@@ -86,6 +90,93 @@ export function insertRootText(
 
     nodes: {
       ...document.nodes,
+
+      [nodeId]: node,
+    },
+  };
+}
+
+export function insertText(
+  document: EditorDocument,
+  nodeId: NodeId,
+  point: Point,
+): EditorDocument {
+  if (document.nodes[nodeId]) {
+    return document;
+  }
+
+  const parentId = findFrameContainingWorldPoint(document, point);
+
+  const placement = getChildPlacementForWorldBounds(document, parentId, {
+    x: point.x,
+    y: point.y,
+    width: DEFAULT_TEXT_WIDTH,
+    height: DEFAULT_TEXT_HEIGHT,
+  });
+
+  const node: TextNode = {
+    id: nodeId,
+    type: "text",
+
+    name: createTextName(document),
+
+    parentId: placement.parentId,
+
+    x: placement.x,
+    y: placement.y,
+
+    width: DEFAULT_TEXT_WIDTH,
+    height: DEFAULT_TEXT_HEIGHT,
+
+    rotation: placement.rotation,
+    opacity: 1,
+
+    visible: true,
+    locked: false,
+
+    content: "",
+
+    fontFamily: "Arial",
+    fontSize: DEFAULT_TEXT_FONT_SIZE,
+    fontWeight: 500,
+
+    textAlign: "left",
+
+    fill: {
+      type: "solid",
+      color: "#18181b",
+    },
+  };
+
+  if (!parentId) {
+    return {
+      ...document,
+
+      rootNodeIds: [...document.rootNodeIds, nodeId],
+
+      nodes: {
+        ...document.nodes,
+        [nodeId]: node,
+      },
+    };
+  }
+
+  const parent = document.nodes[parentId];
+
+  if (!parent || parent.type !== "frame") {
+    return document;
+  }
+
+  return {
+    ...document,
+
+    nodes: {
+      ...document.nodes,
+
+      [parentId]: {
+        ...parent,
+        childIds: [...parent.childIds, nodeId],
+      },
 
       [nodeId]: node,
     },

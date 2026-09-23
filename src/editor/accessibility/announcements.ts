@@ -165,6 +165,13 @@ export function getPropertyAnnouncement(
   }
 }
 
+export function getFillColorAnnouncement(
+  node: EditorNode,
+  color: string,
+): string {
+  return `${node.name} fill color ${color}.`;
+}
+
 export function getHistoryAnnouncement(
   action: HistoryAnnouncementAction,
   commandLabel: string,

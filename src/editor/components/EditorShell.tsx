@@ -12,6 +12,7 @@ import {
 import {
   getDeleteAnnouncement,
   getEditorActionAnnouncement,
+  getFillColorAnnouncement,
   getHistoryAnnouncement,
   getNodeStateAnnouncement,
   getPropertyAnnouncement,
@@ -27,6 +28,7 @@ import {
 import { canRedo, canUndo } from "@/editor/commands/history";
 import { getHistoryShortcut } from "@/editor/commands/historyShortcut";
 import { deleteNodes, moveNodesBy } from "@/editor/document/documentOperations";
+import { updateNodeFillColor } from "@/editor/document/nodeFill";
 import {
   normalizeNodeName,
   setNodeLocked,
@@ -872,6 +874,58 @@ export function EditorShell() {
     });
   }, [announce, document, selection]);
 
+  const handleFillColorCommit = useCallback(
+    (
+      nodeId: NodeId,
+
+      color: string,
+    ) => {
+      const selectedIds = selection.selectedNodeIds;
+
+      if (selectedIds.length === 1 && selectedIds[0] === nodeId) {
+        const previewDocument = updateNodeFillColor(document, nodeId, color);
+
+        if (previewDocument !== document) {
+          const previewNode = previewDocument.nodes[nodeId];
+
+          if (previewNode) {
+            announce(getFillColorAnnouncement(previewNode, color));
+          }
+        }
+      }
+
+      setEditorState((currentState) => {
+        const currentSelectedIds = currentState.selection.selectedNodeIds;
+
+        if (
+          currentSelectedIds.length !== 1 ||
+          currentSelectedIds[0] !== nodeId
+        ) {
+          return currentState;
+        }
+
+        const nextDocument = updateNodeFillColor(
+          currentState.document,
+          nodeId,
+          color,
+        );
+
+        if (nextDocument === currentState.document) {
+          return currentState;
+        }
+
+        return dispatchEditorCommand(currentState, {
+          kind: "update",
+
+          label: "Update fill color",
+
+          nextDocument,
+        });
+      });
+    },
+    [announce, document, selection],
+  );
+
   const handlePropertyCommit = useCallback(
     (
       nodeId: NodeId,
@@ -1119,6 +1173,7 @@ export function EditorShell() {
               <PropertiesInspector
                 node={selectedNode}
                 onCommit={handlePropertyCommit}
+                onFillColorCommit={handleFillColorCommit}
               />
             ) : (
               <div className={styles.selectionSummary}>

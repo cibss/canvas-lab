@@ -3,6 +3,11 @@
 import { useId, useRef, useState } from "react";
 
 import {
+  canEditNodeFill,
+  getNodeFillColor,
+  normalizeHexColor,
+} from "@/editor/document/nodeFill";
+import {
   normalizeNodePropertyValue,
   type EditableNodeProperty,
 } from "@/editor/document/nodeProperties";
@@ -18,6 +23,8 @@ interface PropertiesInspectorProps {
     property: EditableNodeProperty,
     value: number,
   ) => void;
+
+  onFillColorCommit: (nodeId: NodeId, color: string) => void;
 }
 
 type PropertyDraftKey = EditableNodeProperty;
@@ -28,6 +35,12 @@ interface PropertyDraftState {
   nodeId: NodeId | null;
 
   values: PropertyDraftValues;
+}
+
+interface FillDraftState {
+  nodeId: NodeId | null;
+
+  value: string;
 }
 
 interface PropertyInputOptions {
@@ -67,6 +80,7 @@ function getDisplayValue(
 export function PropertiesInspector({
   node,
   onCommit,
+  onFillColorCommit,
 }: PropertiesInspectorProps) {
   const positionHelpId = useId();
 
@@ -76,13 +90,23 @@ export function PropertiesInspector({
 
   const opacityHelpId = useId();
 
+  const fillHelpId = useId();
+
   const [draftState, setDraftState] = useState<PropertyDraftState>({
     nodeId: null,
 
     values: {},
   });
 
+  const [fillDraftState, setFillDraftState] = useState<FillDraftState>({
+    nodeId: null,
+
+    value: "",
+  });
+
   const cancelNextBlurRef = useRef<PropertyDraftKey | null>(null);
+
+  const cancelFillBlurRef = useRef(false);
 
   const getInputValue = (property: PropertyDraftKey): string => {
     if (
@@ -236,6 +260,37 @@ export function PropertiesInspector({
     );
   };
 
+  const modelFillColor = canEditNodeFill(node)
+    ? (getNodeFillColor(node) ?? "#60a5fa")
+    : null;
+
+  const fillInputValue =
+    fillDraftState.nodeId === node.id
+      ? fillDraftState.value
+      : (modelFillColor ?? "");
+
+  const commitFillColor = () => {
+    const normalizedColor = normalizeHexColor(fillInputValue);
+
+    if (normalizedColor) {
+      onFillColorCommit(node.id, normalizedColor);
+    }
+
+    setFillDraftState({
+      nodeId: null,
+      value: "",
+    });
+  };
+
+  const cancelFillColor = () => {
+    cancelFillBlurRef.current = true;
+
+    setFillDraftState({
+      nodeId: null,
+      value: "",
+    });
+  };
+
   return (
     <div className={styles.inspector}>
       <div className={styles.summary}>
@@ -245,6 +300,78 @@ export function PropertiesInspector({
 
         {node.locked ? <small>Locked</small> : null}
       </div>
+
+      {modelFillColor ? (
+        <fieldset className={styles.section}>
+          <legend className={styles.sectionTitle}>Appearance</legend>
+
+          <p id={fillHelpId} className={styles.srOnly}>
+            Fill color accepts three or six digit hexadecimal colors.
+          </p>
+
+          <div className={styles.colorField}>
+            <span className={styles.fieldLabel}>Fill</span>
+
+            <div className={styles.colorControl}>
+              <label className={styles.colorSwatchLabel}>
+                <span className={styles.srOnly}>Choose fill color</span>
+
+                <input
+                  type="color"
+                  value={modelFillColor}
+                  disabled={node.locked}
+                  className={styles.colorPicker}
+                  onChange={(event) => {
+                    onFillColorCommit(node.id, event.currentTarget.value);
+                  }}
+                />
+              </label>
+
+              <input
+                type="text"
+                value={fillInputValue}
+                disabled={node.locked}
+                aria-label="Fill color hex value"
+                aria-describedby={fillHelpId}
+                className={styles.colorTextInput}
+                spellCheck={false}
+                onFocus={(event) => {
+                  event.currentTarget.select();
+                }}
+                onChange={(event) => {
+                  setFillDraftState({
+                    nodeId: node.id,
+                    value: event.currentTarget.value,
+                  });
+                }}
+                onBlur={() => {
+                  if (cancelFillBlurRef.current) {
+                    cancelFillBlurRef.current = false;
+
+                    return;
+                  }
+
+                  commitFillColor();
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    event.currentTarget.blur();
+
+                    return;
+                  }
+
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    cancelFillColor();
+                    event.currentTarget.blur();
+                  }
+                }}
+              />
+            </div>
+          </div>
+        </fieldset>
+      ) : null}
 
       <fieldset className={styles.section}>
         <legend className={styles.sectionTitle}>Position</legend>

@@ -195,3 +195,96 @@
 
   border: 0;
 }
+
+.colorField {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.colorControl {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.colorSwatchLabel {
+  display: block;
+  width: 36px;
+  height: 32px;
+}
+
+.colorPicker {
+  width: 36px;
+  height: 32px;
+  padding: 3px;
+  border: 1px solid #d4d4d8;
+  border-radius: 6px;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.colorPicker:hover:not(:disabled) {
+  border-color: #a1a1aa;
+}
+
+.colorPicker:focus-visible {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgb(37 99 235 / 12%);
+}
+
+.colorPicker:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.colorPicker::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.colorPicker::-webkit-color-swatch {
+  border: 0;
+  border-radius: 3px;
+}
+
+.colorPicker::-moz-color-swatch {
+  border: 0;
+  border-radius: 3px;
+}
+
+.colorTextInput {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  padding: 0 9px;
+  border: 1px solid #d4d4d8;
+  border-radius: 6px;
+  outline: none;
+  color: #27272a;
+  background: #ffffff;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+  font-size: 11px;
+  text-transform: lowercase;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.colorTextInput:hover:not(:disabled) {
+  border-color: #a1a1aa;
+}
+
+.colorTextInput:focus-visible {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgb(37 99 235 / 12%);
+}
+
+.colorTextInput:disabled {
+  cursor: not-allowed;
+  color: #a1a1aa;
+  background: #f4f4f5;
+}

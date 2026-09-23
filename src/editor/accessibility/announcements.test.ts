@@ -15,6 +15,7 @@ import {
 import {
   getDeleteAnnouncement,
   getEditorActionAnnouncement,
+  getFillColorAnnouncement,
   getHistoryAnnouncement,
   getNodeStateAnnouncement,
   getPropertyAnnouncement,
@@ -113,6 +114,15 @@ describe("accessibility announcements", () => {
     expect(getPropertyAnnouncement(node, "opacity")).toBe(
       "Hero Background opacity 50 percent.",
     );
+  });
+
+  it("announces a fill color change", () => {
+    expect(
+      getFillColorAnnouncement(
+        sampleDocument.nodes["rectangle-hero"],
+        "#2563eb",
+      ),
+    ).toBe("Hero Background fill color #2563eb.");
   });
 
   it("announces undo and redo", () => {

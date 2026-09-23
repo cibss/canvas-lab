@@ -75,6 +75,7 @@ export function EditorToolbar({
   return (
     <aside
       className={styles.toolbar}
+      data-tour="toolbar"
       role="toolbar"
       aria-label="Editor tools"
       aria-orientation="vertical"

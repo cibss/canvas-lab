@@ -73,6 +73,7 @@ import { EditorCanvas, type EditorCanvasHandle } from "./EditorCanvas";
 import { EditorToolbar } from "./EditorToolbar";
 import { LiveAnnouncer, type LiveAnnouncement } from "./LiveAnnouncer";
 import { PropertiesInspector } from "./PropertiesInspector";
+import { PRODUCT_TOUR_STORAGE_KEY, ProductTour } from "./ProductTour";
 import { SemanticCanvasMirror } from "./SemanticCanvasMirror";
 
 import styles from "./EditorShell.module.css";
@@ -468,6 +469,8 @@ export function EditorShell() {
   const [liveAnnouncement, setLiveAnnouncement] =
     useState<LiveAnnouncement | null>(null);
 
+  const [isProductTourOpen, setIsProductTourOpen] = useState(false);
+
   const { document, selection, history } = editorState;
 
   const activeToolDefinition = useMemo(
@@ -527,6 +530,24 @@ export function EditorShell() {
 
     setEditorState((currentState) => redoEditorState(currentState));
   }, [announce, redoCommand]);
+
+  useEffect(() => {
+    const frameId = requestAnimationFrame(() => {
+      try {
+        if (
+          window.localStorage.getItem(PRODUCT_TOUR_STORAGE_KEY) !== "completed"
+        ) {
+          setIsProductTourOpen(true);
+        }
+      } catch {
+        setIsProductTourOpen(true);
+      }
+    });
+
+    return () => {
+      cancelAnimationFrame(frameId);
+    };
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1026,9 +1047,26 @@ export function EditorShell() {
           </div>
 
           <div className={styles.topBarActions}>
+            <button
+              type="button"
+              className={styles.tourButton}
+              aria-haspopup="dialog"
+              onClick={() => {
+                setIsProductTourOpen(true);
+              }}
+              title="Replay the CanvasLab product tour"
+            >
+              <span className={styles.tourButtonIcon} aria-hidden="true">
+                ?
+              </span>
+
+              <span>Tour</span>
+            </button>
+
             <Link
               href="/work/canvas-lab/gpu-experiment"
               className={styles.experimentLink}
+              data-tour="webgpu"
               aria-label="Open WebGPU rendering experiment"
               title="Compare Canvas2D and WebGPU rendering"
             >
@@ -1084,7 +1122,11 @@ export function EditorShell() {
               ↷
             </button>
 
-            <div className={styles.zoomControls} aria-label="Zoom controls">
+            <div
+              className={styles.zoomControls}
+              data-tour="zoom"
+              aria-label="Zoom controls"
+            >
               <button
                 type="button"
                 className={styles.zoomButton}
@@ -1129,7 +1171,7 @@ export function EditorShell() {
         <div className={styles.editor}>
           <EditorToolbar activeTool={activeTool} onToolChange={setActiveTool} />
 
-          <aside className={styles.layersPanel}>
+          <aside className={styles.layersPanel} data-tour="layers">
             <div className={styles.panelHeader}>Layers</div>
 
             <div className={styles.layers}>
@@ -1148,7 +1190,11 @@ export function EditorShell() {
             </div>
           </aside>
 
-          <section className={styles.workspace} aria-label="Canvas workspace">
+          <section
+            className={styles.workspace}
+            data-tour="workspace"
+            aria-label="Canvas workspace"
+          >
             <EditorCanvas
               ref={canvasRef}
               document={document}
@@ -1171,7 +1217,7 @@ export function EditorShell() {
             />
           </section>
 
-          <aside className={styles.propertiesPanel}>
+          <aside className={styles.propertiesPanel} data-tour="properties">
             <div className={styles.panelHeader}>Properties</div>
 
             {selectedNodeCount > 1 ? (
@@ -1239,6 +1285,13 @@ export function EditorShell() {
 
           <span>{nodeCount} objects</span>
         </footer>
+
+        <ProductTour
+          open={isProductTourOpen}
+          onClose={() => {
+            setIsProductTourOpen(false);
+          }}
+        />
 
         <LiveAnnouncer announcement={liveAnnouncement} />
       </main>

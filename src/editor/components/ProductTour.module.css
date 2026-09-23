@@ -1,0 +1,164 @@
+.tourRoot {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  pointer-events: auto;
+}
+
+.spotlight {
+  position: fixed;
+  z-index: 1001;
+  display: none;
+  border: 2px solid #60a5fa;
+  border-radius: 10px;
+  background: transparent;
+  box-shadow:
+    0 0 0 9999px rgb(15 23 42 / 62%),
+    0 0 0 5px rgb(96 165 250 / 18%);
+  pointer-events: none;
+  transition:
+    left 180ms ease,
+    top 180ms ease,
+    width 180ms ease,
+    height 180ms ease;
+}
+
+.tooltip {
+  position: fixed;
+  z-index: 1002;
+  width: min(340px, calc(100vw - 32px));
+  border: 1px solid #dbeafe;
+  border-radius: 14px;
+  padding: 16px;
+  background: #ffffff;
+  box-shadow:
+    0 18px 50px rgb(15 23 42 / 24%),
+    0 2px 8px rgb(15 23 42 / 8%);
+  color: #18181b;
+  transition:
+    left 180ms ease,
+    top 180ms ease;
+}
+
+.tooltipHeader > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.eyebrow {
+  color: #2563eb;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.progress {
+  color: #a1a1aa;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.copy h2 {
+  margin: 10px 0 7px;
+  color: #18181b;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.copy p {
+  margin: 0;
+  color: #52525b;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.keyboardHint {
+  margin-top: 12px;
+  color: #a1a1aa;
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid #f4f4f5;
+}
+
+.navigationActions {
+  display: flex;
+  gap: 7px;
+}
+
+.skipButton,
+.secondaryButton,
+.primaryButton {
+  height: 30px;
+  border-radius: 7px;
+  padding: 0 10px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.skipButton {
+  border: 0;
+  background: transparent;
+  color: #71717a;
+}
+
+.skipButton:hover {
+  background: #f4f4f5;
+  color: #3f3f46;
+}
+
+.secondaryButton {
+  border: 1px solid #e4e4e7;
+  background: #ffffff;
+  color: #52525b;
+}
+
+.secondaryButton:hover:not(:disabled) {
+  background: #f4f4f5;
+  color: #18181b;
+}
+
+.secondaryButton:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.primaryButton {
+  border: 1px solid #2563eb;
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.primaryButton:hover {
+  border-color: #1d4ed8;
+  background: #1d4ed8;
+}
+
+.skipButton:focus-visible,
+.secondaryButton:focus-visible,
+.primaryButton:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spotlight,
+  .tooltip {
+    transition: none;
+  }
+}

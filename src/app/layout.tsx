@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "CanvasLab",
+  title: "CanvasLab | Seiba Shonia",
   description:
     "A browser-based visual editor built to explore frontend editor architecture, rendering, interactions, accessibility, and performance.",
 };
